@@ -80,25 +80,21 @@
   const hopVai = $("#hop-vai"),
     form = $("#form-vai"),
     vao = $("#vao");
+  // Chưa đăng nhập (trang chủ không có cô gái + bảng) -> bấm nhà hàng chuyển ra trang đăng nhập bằng nước tràn.
+  const daDangNhap = $(".canh").dataset.dn === "1";
   pho.addEventListener("click", (e) => {
     if (moved < 6 && e.target.closest(".nha-hang")) {
+      if (!daDangNhap) return nuocTran(() => (location.href = "/login"));
       hopVai.hidden = false;
       Am.phat("mo");
     }
   });
-  // bảng treo ở đầu phố: Đăng nhập -> cùng hộp chọn vai như bấm vào nhà hàng
-  const dangNhap = $("#dang-nhap"),
-    dangXuat = $("#dang-xuat");
+  // bảng treo ở đầu phố (chỉ có khi đã đăng nhập): "Đăng xuất" là form POST /logout thật (common.js thêm nước tràn);
+  // "Đăng nhập": đã đăng nhập rồi nên chỉ báo cho người dùng biết
+  const dangNhap = $("#dang-nhap");
   if (dangNhap)
     dangNhap.addEventListener("click", () => {
-      if (moved >= 6) return;
-      hopVai.hidden = false;
-      Am.phat("mo");
-    });
-  // trang phố luôn là trạng thái đã ra khỏi quán (server xóa role khi vào "/"); có role thì bảng là form POST /logout thật
-  if (dangXuat)
-    dangXuat.addEventListener("click", () => {
-      if (moved < 6) bao("Bạn chưa đăng nhập");
+      if (moved < 6) bao("Bạn đã đăng nhập rồi");
     });
   form.addEventListener("change", () => (vao.disabled = false));
   $("#de-sau").onclick = () => (hopVai.hidden = true);

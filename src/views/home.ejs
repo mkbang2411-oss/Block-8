@@ -1,5 +1,5 @@
 <%- include('partials/head', { title: 'Cái Quán Ăn', am: 'pho' }) %>
-<main class="man canh">
+<main class="man canh" data-dn="<%= daDangNhap ? 1 : 0 %>">
   <%# ---- bầu trời tự sinh: gradient + mây + dãy cây mờ phía xa ---- %>
   <div class="may m1"></div><div class="may m2"></div><div class="may m3"></div>
   <div class="xa xa1"></div>
@@ -36,18 +36,16 @@
       <img src="/img/pho/nha-hang.webp" width="1100" height="1286" alt="Cái Quán Ăn" draggable="false" decoding="async">
     </button>
     <% pho.days.slice(3).forEach(veDay) %>
-  <%# ---- cô gái áo dài đứng ở đầu phố (cuộn cùng phố) + 2 bảng treo: Đăng xuất / Đăng nhập ---- %>
+  <%# ---- cô gái áo dài ở đầu phố + 2 bảng treo (Đăng xuất / Đăng nhập): CHỈ hiện khi đã đăng nhập ---- %>
+    <% if (daDangNhap) { %>
     <div class="cong-dn" id="cong-dn">
       <img class="co-gai" src="/img/pho/co-gai.webp" width="294" height="640" alt="" draggable="false" decoding="async">
       <div class="bang-ds">
-        <% if (role) { %>
         <form method="post" action="/logout"><button class="bang" aria-label="Đăng xuất"><img src="/img/pho/bang-dang-xuat.webp" width="440" height="222" alt="Đăng xuất" draggable="false" decoding="async"></button></form>
-        <% } else { %>
-        <button type="button" class="bang" id="dang-xuat" aria-label="Đăng xuất"><img src="/img/pho/bang-dang-xuat.webp" width="440" height="222" alt="Đăng xuất" draggable="false" decoding="async"></button>
-        <% } %>
         <button type="button" class="bang" id="dang-nhap" aria-label="Đăng nhập"><img src="/img/pho/bang-dang-nhap.webp" width="440" height="222" alt="Đăng nhập" draggable="false" decoding="async"></button>
       </div>
     </div>
+    <% } %>
   </div>
 
   <div class="nang" aria-hidden="true">
