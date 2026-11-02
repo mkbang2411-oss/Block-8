@@ -87,6 +87,58 @@ const Am = (() => {
     ].forEach(([k, a, dk]) => tieng(f * k, d * dk, { v: v * a, at }));
   }
 
+  // giọng người (rất đơn giản): sóng răng cưa qua 2 bộ lọc "formant" để ra tiếng "ừ/ư", rung nhẹ,
+  // cuối âm khép lại thành tiếng ngân mũi "m". f0 -> f1: cao độ đầu và cuối âm.
+  function giong(f0, f1, d, o = {}) {
+    if (!ctx) return;
+    const { at = 0, v = 0.14, forms = [380, 1350], khep = true } = o;
+    const t = ctx.currentTime + at;
+    const os = ctx.createOscillator(),
+      lfo = ctx.createOscillator(),
+      lg = ctx.createGain(),
+      ra = ctx.createGain(),
+      nguyenAm = ctx.createGain(),
+      mui = ctx.createGain(),
+      lpMui = ctx.createBiquadFilter();
+    os.type = "sawtooth";
+    os.frequency.setValueAtTime(f0, t);
+    os.frequency.linearRampToValueAtTime(f1, t + d);
+    lfo.frequency.value = 5.2; // rung giọng
+    lg.gain.value = f0 * 0.014;
+    lfo.connect(lg).connect(os.frequency);
+    // tổng độ to: vào nhẹ, tắt dần
+    ra.gain.setValueAtTime(0.0001, t);
+    ra.gain.linearRampToValueAtTime(v, t + 0.06);
+    ra.gain.setValueAtTime(v, t + d * 0.7);
+    ra.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    // nguyên âm: hết ở ~60% âm tiết, nhường chỗ cho tiếng ngân mũi
+    nguyenAm.gain.setValueAtTime(1, t);
+    nguyenAm.gain.setValueAtTime(1, t + d * 0.55);
+    if (khep) {
+      nguyenAm.gain.linearRampToValueAtTime(0.05, t + d * 0.72);
+      mui.gain.setValueAtTime(0.0001, t + d * 0.5);
+      mui.gain.linearRampToValueAtTime(1.4, t + d * 0.75);
+    }
+    lpMui.type = "lowpass";
+    lpMui.frequency.value = 420;
+    forms.forEach((fq, i) => {
+      const bp = ctx.createBiquadFilter(),
+        g = ctx.createGain();
+      bp.type = "bandpass";
+      bp.frequency.value = fq;
+      bp.Q.value = i ? 9 : 5;
+      g.gain.value = i ? 0.7 : 1.4;
+      os.connect(bp).connect(g).connect(nguyenAm);
+    });
+    nguyenAm.connect(ra);
+    if (khep) os.connect(lpMui).connect(mui).connect(ra);
+    ra.connect(tong);
+    os.start(t);
+    lfo.start(t);
+    os.stop(t + d + 0.05);
+    lfo.stop(t + d + 0.05);
+  }
+
   // ---------- hiệu ứng khi thao tác ----------
   // Chỉ giữ 2 hiệu ứng: xoay (đổi món ở bàn ăn) và vut (chuyển cảnh). Các tiếng bấm nút/mở hộp thoại/gọi món đã bỏ.
   const SFX = {
@@ -97,6 +149,43 @@ const Am = (() => {
       chuong(2600, 0.22, 0.04, 0.1);
       chuong(3300, 0.18, 0.03, 0.26);
       chuong(2100, 0.24, 0.03, 0.42);
+    },
+    // tiếng nước: sóng vỗ vào mạn thuyền + vài bọt "ục" nổi lên
+    nuoc: () => {
+      rat(1.1, { loc: "lowpass", f: 380, to: 1500, q: 0.8, v: 0.22, att: 0.3 });
+      rat(0.7, {
+        loc: "bandpass",
+        f: 900,
+        to: 2400,
+        q: 1.2,
+        v: 0.1,
+        at: 0.08,
+        att: 0.2,
+      });
+      for (let i = 0; i < 6; i++) {
+        const f = giua(260, 620);
+        tieng(f, 0.1, {
+          v: 0.07,
+          to: f * giua(1.6, 2.2),
+          at: 0.05 + i * giua(0.09, 0.17),
+          att: 0.01,
+        });
+      }
+      rat(0.5, {
+        loc: "lowpass",
+        f: 600,
+        to: 250,
+        q: 0.7,
+        v: 0.12,
+        at: 0.55,
+        att: 0.1,
+      });
+    },
+    // cô gái cười khẽ: phát ngẫu nhiên 1 trong các đoạn ngắn cắt từ file ghi âm thật (public/audio/co-gai-cuoi-N.mp3)
+    cuoi: () => {
+      const a = new Audio(`/audio/co-gai-cuoi-${1 + Math.floor(R() * 4)}.mp3`);
+      a.volume = 0.85;
+      a.play().catch(() => {});
     },
     // chuyển cảnh: gió lướt + lá xào xạc
     vut: () => {

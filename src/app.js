@@ -3,7 +3,7 @@ const express = require("express");
 const compression = require("compression");
 const cookieParser = require("cookie-parser");
 const methodOverride = require("method-override");
-const { attachUser, requireAuth, sameOriginOnly } = require("./middleware/auth");
+const { attachUser, requireAdmin, sameOriginOnly } = require("./middleware/auth");
 const { formatPrice, dishThumb } = require("./utils/format");
 
 const app = express();
@@ -32,6 +32,7 @@ app.use(
   }),
 );
 app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "10kb" })); // trang đăng nhập/đăng ký gọi API bằng fetch JSON
 app.use(cookieParser());
 // <form method="POST" action="...?_method=PATCH|DELETE"> -> req.method = PATCH|DELETE
 app.use(methodOverride("_method"));
@@ -53,8 +54,8 @@ app.use((req, res, next) => {
 app.use(require("./routes/pages"));
 app.use(require("./routes/auth"));
 app.use(require("./routes/public"));
-// toàn bộ CRUD (/admin/**) bắt buộc đăng nhập; khách chỉ xem /, /khach, /dishes
-app.use("/admin", requireAuth, require("./routes/admin"));
+// toàn bộ CRUD (/admin/**) bắt buộc đăng nhập thật + đang ở vai Đầu bếp
+app.use("/admin", requireAdmin, require("./routes/admin"));
 
 // id sai / không có / đường dẫn lạ -> 404
 app.use((req, res) => {
@@ -66,7 +67,15 @@ app.use((req, res) => {
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+  // JSON gửi lên sai định dạng / quá lớn -> 400 / 413 thay vì 500
+  if (err.type === "entity.parse.failed" || err.type === "entity.too.large") {
+    const status = err.status || 400;
+    if (req.is("json")) return res.status(status).json({ ok: false, error: "Dữ liệu gửi lên không hợp lệ." });
+    return res.status(status).render("error", { status, message: "Dữ liệu gửi lên không hợp lệ." });
+  }
   console.error(err);
+  if (req.is("json"))
+    return res.status(500).json({ ok: false, error: "Có lỗi xảy ra phía máy chủ, vui lòng thử lại." });
   res
     .status(500)
     .render("error", { status: 500, message: "Có lỗi xảy ra phía máy chủ." });

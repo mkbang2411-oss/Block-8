@@ -80,6 +80,24 @@ function chuyenCanh(xong, huong = "len") {
   );
 }
 
+// Nước sông tràn từ dưới lên phủ kín màn (0.62s) rồi chạy xong(): hàm hoặc đường dẫn.
+// Trang đích đọc cờ "nuoc" (head.ejs + CSS html[data-nuoc]) để cho nước rút xuống, 2 trang nối liền nhau.
+function nuocTran(xong) {
+  const di = () =>
+    typeof xong === "function" ? xong() : (location.href = xong);
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return di();
+  document.querySelectorAll(".nuoc-tran").forEach((x) => x.remove());
+  const n = document.createElement("div");
+  n.className = "nuoc-tran";
+  n.setAttribute("aria-hidden", "true");
+  document.body.append(n);
+  Am.phat("vut");
+  try {
+    sessionStorage.setItem("nuoc", "1");
+  } catch (e) {}
+  setTimeout(di, 620);
+}
+
 // Chuyển cảnh bằng ĐĨA TRẮNG (tròn/vuông ngẫu nhiên) trượt ngang qua màn hình: dùng giữa bàn chọn món / danh sách / chi tiết món.
 // Bố cục đĩa được lưu vào sessionStorage để trang đích dựng lại y hệt rồi cho đĩa trượt đi tiếp (xem head.ejs + CSS html[data-dia]).
 function dungDia(ds) {
@@ -260,6 +278,11 @@ document.addEventListener("click", (e) => {
   )
     return;
   e.preventDefault();
+  // từ trang đăng nhập / đăng ký (.dn) về trang chủ: nước sông tràn lên; các trang khác: cành cây như cũ
+  if (a.closest(".dn")) {
+    if (!document.querySelector(".nuoc-tran")) nuocTran("/");
+    return;
+  }
   if (!document.body.classList.contains("di-xuong")) chuyenCanh("/", "xuong");
 });
 document.addEventListener("submit", (e) => {
@@ -267,9 +290,9 @@ document.addEventListener("submit", (e) => {
   if (!f.matches || !f.matches('form[action="/logout"]') || e.defaultPrevented)
     return;
   e.preventDefault();
-  if (!document.body.classList.contains("di-xuong"))
-    // hiệu ứng chạy xong mới gửi form POST /logout thật (server xóa cookie + redirect 303 về phố)
-    chuyenCanh(() => f.submit(), "xuong");
+  if (!document.querySelector(".nuoc-tran"))
+    // nước tràn xong mới gửi form POST /logout thật (server xóa cookie + redirect 303 về trang đăng nhập)
+    nuocTran(() => f.submit());
 });
 
 if (document.body.hasAttribute("data-la")) setInterval(() => thaLa(1), 900);

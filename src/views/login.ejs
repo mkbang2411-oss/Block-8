@@ -1,24 +1,197 @@
-<%- include('partials/head', { title: 'Đăng nhập đầu bếp', am: 'quan' }) %>
-<%- include('partials/auth-style') %>
-<main class="man trang cuon">
-  <div class="thanh"><a class="nut nut-phu" href="/">Ra phố</a><div class="tabs"><a class="nut nut-phu" href="/khach">Xem thực đơn</a></div></div>
-  <form class="hop hop-giua" method="post" action="/login" autocomplete="on">
-    <h2>Đăng nhập đầu bếp</h2>
-    <p class="phu-chu">Khách chỉ cần xem thực đơn, không cần đăng nhập.</p>
-    <% if (locals.info) { %><div class="bao-ok"><%= info %></div><% } %>
-    <% if (error) { %><div class="bao-loi"><%= error %><% if (canResend) { %> <a href="/resend-verification">Gửi lại email xác nhận</a><% } %></div><% } %>
-    <input type="hidden" name="next" value="<%= next %>">
-    <div class="truong">
-      <label for="email">Email</label>
-      <input type="email" id="email" name="email" value="<%= email %>" autocomplete="username" required maxlength="254">
+<%# Trang ĐĂNG NHẬP / ĐĂNG KÝ (ban đêm): sông + thuyền bên trái, hoa đăng trôi, khung đăng nhập/đăng ký bên phải.
+    tab = 'login' | 'register' (GET /login, GET /register dùng chung 1 view; JS chuyển tab không tải lại trang).
+    Các form gọi API thật (routes/auth.js) bằng fetch JSON, xem public/js/dang-nhap.js %>
+<% const tab = locals.tab === 'register' ? 'register' : 'login'; %>
+<%- include('partials/head', { title: tab === 'register' ? 'Đăng ký' : 'Đăng nhập', am: 'quan' }) %>
+<main class="man dn" data-tab="<%= tab %>" data-next="<%= locals.next || '' %>">
+  <%# ---- bầu trời đêm: sao nhấp nháy + 2 vệt sáng ánh trăng (dịu hơn trang phố) ---- %>
+  <div class="dn-troi" aria-hidden="true">
+    <% for (let k = 0; k < 22; k++) { %><i class="dn-sao" style="--x:<%= 2 + Math.floor(Math.random() * 96) %>%;--y:<%= 2 + Math.floor(Math.random() * 56) %>%;--s:<%= (1.2 + Math.random() * 1.8).toFixed(1) %>px;--t:<%= (2.4 + Math.random() * 3).toFixed(1) %>s;--dl:-<%= (Math.random() * 5).toFixed(1) %>s"></i><% } %>
+  </div>
+  <div class="nang" aria-hidden="true"><i class="tia"></i><i class="tia nho"></i></div>
+
+  <%# ---- sông chiếm hơn nửa chiều cao màn hình (--song-h trong style.css) ---- %>
+  <div class="dn-song" aria-hidden="true">
+    <div class="dn-song-nuoc"></div>
+    <% for (let k = 0; k < 16; k++) { %><i class="dn-lap" style="--x:<%= 2 + Math.floor(Math.random() * 96) %>%;--y:<%= 10 + Math.floor(Math.random() * 84) %>%;--s:<%= 8 + Math.floor(Math.random() * 8) %>px;--t:<%= (2.4 + Math.random() * 2.4).toFixed(1) %>s;--dl:-<%= (Math.random() * 5).toFixed(1) %>s"></i><% } %>
+  </div>
+
+  <i class="dn-mep sau" aria-hidden="true"></i><i class="dn-mep" aria-hidden="true"></i>
+
+  <%# ---- thuyền nằm giữa chiều cao màn hình, lệch về bên trái ---- %>
+  <div class="dn-thuyen" aria-hidden="true">
+    <img src="/img/thuyen.webp" width="1400" height="369" alt="" draggable="false" decoding="async">
+  </div>
+
+  <%# ---- 10 hoa đăng (3 loại), trôi nhẹ tại chỗ. t = loại đèn | x = vị trí ngang (%) | b = độ cao trên dải sông (%) | k = cỡ ---- %>
+  <% const den = [
+    { t: 1, x: 4,  b: 58, k: 0.72, du: 6.2 }, { t: 2, x: 22, b: 54, k: 0.80, du: 7.4 },
+    { t: 3, x: 40, b: 60, k: 0.68, du: 5.6 }, { t: 1, x: 3,  b: 28, k: 1.00, du: 7.0 },
+    { t: 3, x: 16, b: 5,  k: 1.20, du: 6.6 }, { t: 2, x: 33, b: 9,  k: 1.10, du: 5.8 },
+    { t: 1, x: 47, b: 40, k: 0.90, du: 7.8 }, { t: 3, x: 53, b: 70, k: 0.65, du: 6.0 },
+    { t: 2, x: 64, b: 4,  k: 1.15, du: 7.2 }, { t: 1, x: 82, b: 3,  k: 1.00, du: 6.4 },
+    { t: 2, x: 12, b: 42, k: 0.90, du: 6.8 }, { t: 3, x: 28, b: 28, k: 1.00, du: 7.6 }
+  ]; %>
+  <div class="dn-den-ds" aria-hidden="true">
+    <% den.forEach(function (d, i) { %><span class="dn-den t<%= d.t %>" style="--x:<%= d.x %>%;--b:<%= d.b %>;--k:<%= d.k %>;--du:<%= d.du %>s;--dl:-<%= (i * 1.3).toFixed(1) %>s;z-index:<%= d.b < 30 ? 5 : 3 %>"><img src="/img/dang-nhap/den-<%= d.t %>.webp?v=2" width="360" height="421" alt="" draggable="false" decoding="async"></span>
+    <% }) %>
+  </div>
+
+  <a class="dn-ve" href="/"><svg viewBox="0 0 20 14" width="16" height="12" aria-hidden="true"><path d="M19 7H2M7 1.5 1.5 7 7 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Trang chủ</a>
+
+  <%# ================== KHUNG ĐĂNG NHẬP / ĐĂNG KÝ ================== %>
+  <section class="dn-the" aria-label="Đăng nhập và đăng ký">
+    <div class="dn-tab" role="tablist" aria-label="Chọn đăng nhập hoặc đăng ký">
+      <button type="button" role="tab" class="dn-tab-nut<%= tab === 'login' ? ' on' : '' %>" id="tab-dn" data-tab="login" aria-controls="p-dn" aria-selected="<%= tab === 'login' %>" tabindex="<%= tab === 'login' ? 0 : -1 %>">Đăng nhập</button>
+      <button type="button" role="tab" class="dn-tab-nut<%= tab === 'register' ? ' on' : '' %>" id="tab-dk" data-tab="register" aria-controls="p-dk" aria-selected="<%= tab === 'register' %>" tabindex="<%= tab === 'register' ? 0 : -1 %>">Đăng ký</button>
+      <i class="dn-tab-vach" aria-hidden="true"></i>
     </div>
-    <div class="truong">
-      <label for="password">Mật khẩu</label>
-      <input type="password" id="password" name="password" autocomplete="current-password" required maxlength="200">
+
+    <%# ---------- ĐĂNG NHẬP ---------- %>
+    <div class="dn-pane" id="p-dn" role="tabpanel" aria-labelledby="tab-dn"<%- tab === 'login' ? '' : ' hidden' %>>
+      <h1 class="dn-tieude">Chào mừng trở lại</h1>
+      <p class="dn-phu">Đăng nhập để tiếp tục sử dụng hệ thống.</p>
+      <% if (locals.error) { %><div class="bao-loi" role="alert"><%= error %></div><% } %>
+      <form id="f-dn" method="post" action="/login" novalidate>
+        <label class="dn-truong"><span>Địa chỉ email</span>
+          <input type="email" name="email" autocomplete="username" placeholder="ten@email.com" required>
+          <small class="dn-loi" role="alert"></small></label>
+        <label class="dn-truong"><span>Mật khẩu</span>
+          <span class="dn-mk"><input type="password" name="password" autocomplete="current-password" placeholder="Nhập mật khẩu" required>
+            <button type="button" class="dn-mat" aria-label="Hiện mật khẩu" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M1.5 12S5.5 5 12 5s10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path class="gach" d="M4 4l16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span>
+          <small class="dn-loi" role="alert"></small></label>
+        <a class="dn-quen" href="/login" id="quen-mk">Quên mật khẩu?</a>
+        <button class="dn-nut" type="submit"><span>Đăng nhập</span></button>
+      </form>
+      <p class="dn-chuyen">Chưa có tài khoản? <a href="/register" data-chuyen="register">Đăng ký ngay</a></p>
     </div>
-    <%- include('partials/captcha') %>
-    <div class="nut-hang"><button class="nut">Đăng nhập</button></div>
-    <div class="auth-lk"><a href="/register">Đăng ký tài khoản đầu bếp</a><a href="/forgot-password">Quên mật khẩu?</a><a href="/resend-verification">Chưa nhận được email xác nhận?</a></div>
-  </form>
+
+    <%# ---------- QUÊN MẬT KHẨU (không phải tab: mở từ link "Quên mật khẩu?"; 3 bước giống đăng ký: 1 email -> 2 mã OTP -> 3 mật khẩu mới) ---------- %>
+    <div class="dn-pane" id="p-qm" role="region" aria-labelledby="qm-tieude" hidden>
+      <div id="qm-dau">
+        <h1 class="dn-tieude" id="qm-tieude">Quên mật khẩu</h1>
+        <p class="dn-phu" id="qm-phu">Nhập email đã đăng ký, chúng tôi sẽ gửi mã xác thực 6 số.</p>
+        <ol class="dn-buoc" id="qm-buoc" aria-label="Các bước đặt lại mật khẩu">
+          <li class="on" data-b="1" aria-current="step"><b>1</b></li>
+          <li data-b="2"><b>2</b></li>
+          <li data-b="3"><b>3</b></li>
+        </ol>
+      </div>
+
+      <%# Bước 1: email %>
+      <form class="dn-q" data-q="1" id="f-q1" novalidate>
+        <label class="dn-truong"><span>Địa chỉ email</span>
+          <input type="email" name="email" autocomplete="username" placeholder="ten@email.com" required>
+          <small class="dn-loi" role="alert"></small></label>
+        <button class="dn-nut" type="submit"><span>Gửi mã xác thực</span></button>
+      </form>
+
+      <%# Bước 2: OTP 6 số %>
+      <form class="dn-q" data-q="2" id="f-q2" hidden novalidate>
+        <div class="dn-otp" role="group" aria-label="Mã xác thực 6 số">
+          <% for (let k = 0; k < 6; k++) { %><input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="<%= k === 0 ? 'one-time-code' : 'off' %>" aria-label="Số thứ <%= k + 1 %>"><% } %>
+        </div>
+        <small class="dn-loi giua" id="loi-qotp" role="alert"></small>
+        <button class="dn-nut" type="submit"><span>Xác nhận mã</span></button>
+        <div class="dn-phu-hang">
+          <button type="button" class="dn-lk" id="q-doi-email">← Đổi email</button>
+          <button type="button" class="dn-lk" id="q-gui-lai" disabled>Gửi lại mã</button>
+        </div>
+      </form>
+
+      <%# Bước 3: mật khẩu mới %>
+      <form class="dn-q" data-q="3" id="f-q3" hidden novalidate>
+        <label class="dn-truong"><span>Mật khẩu mới</span>
+          <input type="password" name="matKhau" autocomplete="new-password" placeholder="Nhập mật khẩu mới" required aria-describedby="qm-luat-mk">
+          <ul class="dn-dk" id="qm-luat-mk" aria-live="polite"></ul>
+          <small class="dn-loi" role="alert"></small></label>
+        <label class="dn-truong"><span>Nhập lại mật khẩu</span>
+          <input type="password" name="matKhau2" autocomplete="new-password" placeholder="Nhập lại mật khẩu" required aria-describedby="qm-luat-mk2">
+          <ul class="dn-dk" id="qm-luat-mk2" aria-live="polite"></ul>
+          <small class="dn-loi" role="alert"></small></label>
+        <button class="dn-nut" type="submit"><span>Đặt lại mật khẩu</span></button>
+      </form>
+
+      <p class="dn-chuyen"><a href="/login" id="qm-ve">← Quay lại đăng nhập</a></p>
+    </div>
+
+    <%# ---------- ĐĂNG KÝ: 3 bước (1 email + xác nhận không phải người máy -> 2 mã OTP -> 3 thông tin cá nhân) ---------- %>
+    <div class="dn-pane" id="p-dk" role="tabpanel" aria-labelledby="tab-dk"<%- tab === 'register' ? '' : ' hidden' %>>
+      <div id="dk-dau">
+        <h1 class="dn-tieude" id="dk-tieude">Xác thực email</h1>
+        <p class="dn-phu" id="dk-phu">Nhập email bạn muốn dùng để đăng nhập hệ thống.</p>
+        <ol class="dn-buoc" aria-label="Các bước đăng ký">
+          <li class="on" data-b="1" aria-current="step"><b>1</b></li>
+          <li data-b="2"><b>2</b></li>
+          <li data-b="3"><b>3</b></li>
+        </ol>
+      </div>
+
+      <%# Bước 1: email + xác nhận không phải người máy (CAPTCHA qua rồi server mới gửi OTP) %>
+      <form class="dn-b" data-b="1" data-tieude="Xác thực email" id="f-b1" novalidate>
+        <label class="dn-truong"><span>Địa chỉ email</span>
+          <input type="email" name="email" autocomplete="email" placeholder="ten@email.com" required>
+          <small class="dn-loi" role="alert"></small></label>
+        <%# "Không phải người máy" (bước 1, TRƯỚC khi server gửi OTP): có RECAPTCHA_SITE_KEY thì hiện reCAPTCHA thật, không thì ô giả lập (server chỉ kiểm tra khi có RECAPTCHA_SECRET_KEY) %>
+        <% if (locals.recaptchaSiteKey) { %>
+        <div class="dn-rc"><div class="g-recaptcha" id="cap-rc" data-sitekey="<%= recaptchaSiteKey %>" data-callback="capXong" data-expired-callback="capHet"></div></div>
+        <% } else { %>
+        <div class="dn-cap" id="cap" role="checkbox" aria-checked="false" aria-labelledby="cap-chu" tabindex="0">
+          <span class="dn-cap-o" aria-hidden="true"></span>
+          <span class="dn-cap-chu" id="cap-chu">Tôi không phải là người máy</span>
+          <svg class="dn-cap-hinh" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 2.5 4.5 5.8v5.6c0 4.6 3.1 8.1 7.5 10.1 4.4-2 7.5-5.5 7.5-10.1V5.8z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8.6 12.2 2.4 2.4 4.4-4.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <% } %>
+        <small class="dn-loi" id="loi-cap" role="alert"></small>
+        <button class="dn-nut" type="submit"><span>Gửi mã xác thực</span></button>
+      </form>
+
+      <%# Bước 2: OTP 6 số %>
+      <form class="dn-b" data-b="2" id="f-b2" hidden novalidate>
+        <div class="dn-otp" role="group" aria-label="Mã xác thực 6 số">
+          <% for (let k = 0; k < 6; k++) { %><input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="<%= k === 0 ? 'one-time-code' : 'off' %>" aria-label="Số thứ <%= k + 1 %>"><% } %>
+        </div>
+        <small class="dn-loi giua" id="loi-otp" role="alert"></small>
+        <button class="dn-nut" type="submit"><span>Xác nhận mã</span></button>
+        <div class="dn-phu-hang">
+          <button type="button" class="dn-lk" id="doi-email">← Đổi email</button>
+          <button type="button" class="dn-lk" id="gui-lai" disabled>Gửi lại mã</button>
+        </div>
+      </form>
+
+      <%# Bước 3: thông tin cá nhân %>
+      <form class="dn-b" data-b="3" id="f-b3" hidden novalidate>
+        <label class="dn-truong"><span>Họ và tên</span>
+          <input type="text" name="hoTen" autocomplete="name" placeholder="Nguyễn Văn A" required>
+          <small class="dn-loi" role="alert"></small></label>
+                <fieldset class="dn-vai" id="dk-vai">
+          <legend>Bạn đăng ký với vai trò</legend>
+          <label><input type="radio" name="role" value="customer" required><span><b>Khách hàng</b><small>Xem thực đơn và gọi món</small></span></label>
+          <label><input type="radio" name="role" value="chef" required><span><b>Đầu bếp</b><small>Quản lí món ăn, nguyên liệu</small></span></label>
+          <small class="dn-loi" id="loi-role" role="alert"></small>
+        </fieldset>
+        <label class="dn-truong"><span>Mật khẩu</span>
+          <input type="password" name="matKhau" autocomplete="new-password" placeholder="Nhập mật khẩu" required aria-describedby="dk-luat-mk">
+          <ul class="dn-dk" id="dk-luat-mk" aria-live="polite"></ul>
+          <small class="dn-loi" role="alert"></small></label>
+        <label class="dn-truong"><span>Nhập lại mật khẩu</span>
+          <input type="password" name="matKhau2" autocomplete="new-password" placeholder="Nhập lại mật khẩu" required aria-describedby="dk-luat-mk2">
+          <ul class="dn-dk" id="dk-luat-mk2" aria-live="polite"></ul>
+          <small class="dn-loi" role="alert"></small></label>
+        <button class="dn-nut" type="submit"><span>Hoàn tất đăng ký</span></button>
+      </form>
+
+      <%# Thành công %>
+      <div class="dn-xong" id="dk-xong" hidden>
+        <svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="29" fill="none" stroke="currentColor" stroke-width="3.5"/><path d="m19 33 9 9 18-20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <h1 class="dn-tieude">Đăng ký thành công</h1>
+        <p class="dn-phu">Tài khoản của bạn đã sẵn sàng. Mời bạn đăng nhập để vào quán.</p>
+        <button type="button" class="dn-nut" id="dk-dn"><span>Đăng nhập ngay</span></button>
+      </div>
+
+      <p class="dn-chuyen" id="dk-chan">Đã có tài khoản? <a href="/login" data-chuyen="login">Đăng nhập</a></p>
+    </div>
+  </section>
 </main>
-<%- include('partials/foot') %>
+<% if (locals.recaptchaSiteKey) { %><script src="https://www.google.com/recaptcha/api.js" async defer></script><% } %>
+<%- include('partials/foot', { scripts: ['/js/dang-nhap.js'] }) %>

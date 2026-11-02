@@ -1,13 +1,16 @@
-// Dọn dữ liệu hết hạn trong DB mỗi giờ: phiên, captcha, tài khoản không bao giờ xác minh email (>7 ngày)
+// Dọn dữ liệu hết hạn trong DB mỗi giờ: phiên, OTP, tài khoản không bao giờ xác minh email (>7 ngày)
 const { Op } = require('sequelize');
-const { Session, Captcha, User, PasswordReset } = require('../models');
+const { Session, User, PasswordReset, RegisterOtp } = require('../models');
 
 async function cleanup() {
   const now = new Date();
   try {
     await Session.destroy({ where: { expiresAt: { [Op.lt]: now } } });
     await PasswordReset.destroy({ where: { expiresAt: { [Op.lt]: now } } });
-    await Captcha.destroy({ where: { expiresAt: { [Op.lt]: now } } });
+    // OTP đăng ký: còn giữ khi vé (ticket) của bước 3 chưa hết hạn
+    await RegisterOtp.destroy({
+      where: { expiresAt: { [Op.lt]: now }, [Op.or]: [{ ticketExpires: null }, { ticketExpires: { [Op.lt]: now } }] },
+    });
     await User.destroy({
       where: { emailVerifiedAt: null, createdAt: { [Op.lt]: new Date(Date.now() - 7 * 24 * 3600 * 1000) } },
     });

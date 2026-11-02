@@ -59,8 +59,43 @@ const makeThumb = (buf) =>
     .webp({ quality: 75 })
     .toBuffer();
 
-async function removeImage(path) {
-  if (path) await supabase().storage.from(BUCKET).remove([path, thumbPath(path)]);
+// Ảnh đại diện: trình duyệt đã cắt vuông + zoom theo ý người dùng, server chỉ chuẩn hóa lại:
+// 512px (ảnh lớn) + 240px (thumbnail cho vé) dạng WEBP, đặt trong thư mục avatars/ của cùng bucket.
+async function uploadAvatar(file) {
+  const [buffer, thumb] = await Promise.all([
+    sharp(file.buffer)
+      .rotate()
+      .resize({ width: 512, height: 512, fit: "cover" })
+      .webp({ quality: 85 })
+      .toBuffer(),
+    makeThumb(file.buffer),
+  ]);
+  const path = `avatars/${crypto.randomUUID()}.webp`;
+  const opts = { contentType: "image/webp", cacheControl: "31536000" };
+  const [big, small] = await Promise.all([
+    supabase().storage.from(BUCKET).upload(path, buffer, opts),
+    supabase().storage.from(BUCKET).upload(thumbPath(path), thumb, opts),
+  ]);
+  if (big.error) throw big.error;
+  if (small.error) throw small.error;
+  const { data } = supabase().storage.from(BUCKET).getPublicUrl(path);
+  return { path, url: data.publicUrl };
 }
 
-module.exports = { uploadImage, removeImage, makeThumb, thumbPath, supabase, BUCKET, EXT };
+async function removeImage(path) {
+  if (path)
+    await supabase()
+      .storage.from(BUCKET)
+      .remove([path, thumbPath(path)]);
+}
+
+module.exports = {
+  uploadImage,
+  uploadAvatar,
+  removeImage,
+  makeThumb,
+  thumbPath,
+  supabase,
+  BUCKET,
+  EXT,
+};

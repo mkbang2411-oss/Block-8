@@ -4,8 +4,8 @@ const Chef = require('./Chef');
 const Ingredient = require('./Ingredient');
 const User = require('./User');
 const Session = require('./Session');
-const Captcha = require('./Captcha');
 const PasswordReset = require('./PasswordReset');
+const RegisterOtp = require('./RegisterOtp');
 
 // Mỗi món BẮT BUỘC có một đầu bếp; không xóa được đầu bếp còn đang phụ trách món (RESTRICT)
 Chef.hasMany(Dish, { foreignKey: { name: 'chefId', allowNull: false }, as: 'dishes', onDelete: 'RESTRICT' });
@@ -32,4 +32,4 @@ Session.belongsTo(User, { foreignKey: { name: 'userId', allowNull: false }, as: 
 User.hasMany(PasswordReset, { foreignKey: { name: 'userId', allowNull: false }, as: 'resets', onDelete: 'CASCADE' });
 PasswordReset.belongsTo(User, { foreignKey: { name: 'userId', allowNull: false }, as: 'user' });
 
-module.exports = { sequelize, Dish, Chef, Ingredient, User, Session, Captcha, PasswordReset };
+module.exports = { sequelize, Dish, Chef, Ingredient, User, Session, PasswordReset, RegisterOtp };

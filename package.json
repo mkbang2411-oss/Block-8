@@ -25,7 +25,6 @@
     "pg-hstore": "^2.3.4",
     "sequelize": "^6.37.5",
     "sharp": "^0.35.5",
-    "svg-captcha": "^1.4.0",
     "ws": "^8.22.0"
   },
   "devDependencies": {

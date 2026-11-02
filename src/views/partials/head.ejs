@@ -14,7 +14,7 @@
 <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Be+Vietnam+Pro:wght@400;500;600;700&family=Playfair+Display:wght@600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap"></noscript>
 <link rel="stylesheet" href="/css/style.min.css">
 <%# hướng chuyển cảnh từ trang trước (len | xuong): đặt sớm để trang đích không bị chớp trước khi cành cây chạy %>
-<script>try{var h=sessionStorage.getItem("huong");if(h)document.documentElement.setAttribute("data-vao",h);if(sessionStorage.getItem("dia"))document.documentElement.setAttribute("data-dia","1")}catch(e){}</script>
+<script>try{var h=sessionStorage.getItem("huong");if(h)document.documentElement.setAttribute("data-vao",h);if(sessionStorage.getItem("nuoc")){sessionStorage.removeItem("nuoc");document.documentElement.setAttribute("data-nuoc","1");setTimeout(function(){document.documentElement.removeAttribute("data-nuoc")},1000)}if(sessionStorage.getItem("dia"))document.documentElement.setAttribute("data-dia","1")}catch(e){}</script>
 </head>
 <%# la: có lá bay (trang phố) | am: kiểu âm nền của trang (pho | khach | bep | quan) %>
 <body<%- locals.la ? ' data-la' : '' %> data-am="<%= locals.am || 'quan' %>">

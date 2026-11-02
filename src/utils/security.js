@@ -25,7 +25,7 @@ const cookieOptions = (maxAgeMs) => ({
 });
 
 // Chỉ cho phép redirect về đường dẫn nội bộ (chống open redirect)
-const safeNext = (value, fallback = '/admin/dishes') =>
+const safeNext = (value, fallback = '/') =>
   typeof value === 'string' && /^\/(?![/\\])[\w\-./?=&%]*$/.test(value) && value.length < 300 ? value : fallback;
 
 module.exports = { randomToken, sha256, safeEqual, cookieOptions, safeNext, isProd };
