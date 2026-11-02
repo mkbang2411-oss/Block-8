@@ -179,9 +179,10 @@ Block-5-main/
 
 ## 8. Lệnh npm
 
-| Lệnh              | Công dụng                                                |
-| ----------------- | -------------------------------------------------------- |
-| `npm install`     | Cài đặt các thư viện cần thiết.                          |
-| `npm start`       | Khởi động máy chủ.                                       |
-| `npm run dev`     | Chạy máy chủ với nodemon trong quá trình phát triển.     |
-| `npm run db:seed` | Khởi tạo bảng và nạp dữ liệu mẫu; có thể xóa dữ liệu cũ. |
+| Lệnh                  | Công dụng                                                |
+| --------------------- | -------------------------------------------------------- |
+| `npm install`         | Cài đặt các thư viện cần thiết.                          |
+| `npm start`           | Khởi động máy chủ.                                       |
+| `npm run dev`         | Chạy máy chủ với nodemon trong quá trình phát triển.     |
+| `npm run db:seed`     | Khởi tạo bảng và nạp dữ liệu mẫu; có thể xóa dữ liệu cũ. |
+| `npm install bcryptjs`| Hash và xác thực mật khẩu.                               |
