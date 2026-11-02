@@ -3,10 +3,13 @@ const express = require("express");
 const compression = require("compression");
 const cookieParser = require("cookie-parser");
 const methodOverride = require("method-override");
-const { attachRole, requireAdmin } = require("./middleware/auth");
+const { attachUser, requireAuth, sameOriginOnly } = require("./middleware/auth");
 const { formatPrice, dishThumb } = require("./utils/format");
 
 const app = express();
+
+// chạy sau proxy (Render...): để req.ip đúng cho rate limit và cookie Secure hoạt động
+if (process.env.NODE_ENV === "production") app.set("trust proxy", 1);
 
 // nén HTML/CSS/JS trước khi gửi về trình duyệt (giảm ~70% dung lượng)
 app.use(compression());
@@ -32,7 +35,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 // <form method="POST" action="...?_method=PATCH|DELETE"> -> req.method = PATCH|DELETE
 app.use(methodOverride("_method"));
-app.use(attachRole);
+// chặn CSRF (POST/PATCH/DELETE phải cùng nguồn) rồi đọc cookie phiên -> req.user
+app.use(sameOriginOnly);
+app.use(attachUser);
 // origin của Supabase Storage (không phải bí mật): để <link rel="preconnect"> mở sẵn kết nối tới nơi chứa ảnh
 let imgOrigin = "";
 try {
@@ -48,7 +53,8 @@ app.use((req, res, next) => {
 app.use(require("./routes/pages"));
 app.use(require("./routes/auth"));
 app.use(require("./routes/public"));
-app.use("/admin", requireAdmin, require("./routes/admin"));
+// toàn bộ CRUD (/admin/**) bắt buộc đăng nhập; khách chỉ xem /, /khach, /dishes
+app.use("/admin", requireAuth, require("./routes/admin"));
 
 // id sai / không có / đường dẫn lạ -> 404
 app.use((req, res) => {

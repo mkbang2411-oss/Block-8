@@ -1,7 +1,8 @@
 // Mock data: xóa & tạo lại bảng từ model (code-first) rồi thêm dữ liệu mẫu.
 // Có ~10 món để bàn tròn ở trang /khach nhìn đủ đầy (giao diện thiết kế cho khoảng 10 món).
 require('dotenv').config();
-const { sequelize, Dish, Chef, Ingredient } = require('../src/models');
+const bcrypt = require('bcryptjs');
+const { sequelize, Dish, Chef, Ingredient, User } = require('../src/models');
 
 (async () => {
   await sequelize.sync({ force: true });
@@ -42,6 +43,18 @@ const { sequelize, Dish, Chef, Ingredient } = require('../src/models');
   for (const [name, description, price, category, available, chef, ings] of mon) {
     const dish = await Dish.create({ name, description, price, category, available, chefId: chef.id });
     await dish.setIngredients(ings.map((n) => ing[n]));
+  }
+
+  // Tài khoản đầu bếp mẫu (đã xác minh email) để đăng nhập ngay; đặt SEED_CHEF_EMAIL / SEED_CHEF_PASSWORD trong .env
+  // LƯU Ý: sync({ force: true }) ở đầu file xóa cả bảng users và sessions -> chạy seed xong phải đăng nhập lại.
+  if (process.env.SEED_CHEF_EMAIL && process.env.SEED_CHEF_PASSWORD) {
+    await User.create({
+      name: 'Đầu bếp mẫu',
+      email: process.env.SEED_CHEF_EMAIL.trim().toLowerCase(),
+      passwordHash: await bcrypt.hash(process.env.SEED_CHEF_PASSWORD, 12),
+      emailVerifiedAt: new Date(),
+    });
+    console.log('Đã tạo tài khoản đầu bếp mẫu:', process.env.SEED_CHEF_EMAIL);
   }
 
   console.log('Seed xong.');

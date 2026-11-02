@@ -1,0 +1,15 @@
+<%# kiểu riêng cho ô nhập của form đăng ký/đăng nhập (dùng lại biến màu của style.css, không sửa file CSS) %>
+<style>
+  .hop .truong input[type="text"], .hop .truong input[type="email"], .hop .truong input[type="password"], .hop .truong input[type="text"][inputmode="numeric"] {
+    width: 100%; margin-top: 4px; padding: 8px 10px; font: inherit;
+    border: 2px solid var(--nau); border-radius: 8px; background: #fffaf0; color: var(--nau);
+  }
+  .hop .truong input:focus { outline: 3px solid var(--vang); }
+  .captcha-hang { display: flex; align-items: center; gap: 10px; margin-top: 4px; flex-wrap: wrap; }
+  .captcha-hang img { height: 56px; width: 160px; border: 2px solid var(--nau); border-radius: 8px; background: #fffaf0; }
+  .captcha-hang button { cursor: pointer; }
+  .auth-lk { margin-top: 14px; font-size: .9rem; display: flex; gap: 14px; flex-wrap: wrap; }
+  .auth-lk a { color: inherit; }
+  .bao-ok { background: #dff0d4; border: 2px solid var(--la); color: #2c4a1a; padding: 8px 12px; border-radius: 8px; margin: 10px 0; }
+  .hop .truong input[inputmode="numeric"] { letter-spacing: .3em; font-size: 1.2rem; }
+</style>

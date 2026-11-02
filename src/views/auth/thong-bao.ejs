@@ -1,0 +1,13 @@
+<%- include('../partials/head', { title: title, am: 'quan' }) %>
+<%- include('../partials/auth-style') %>
+<main class="man trang cuon">
+  <div class="thanh"><a class="nut nut-phu" href="/">Ra phố</a></div>
+  <div class="hop hop-giua">
+    <h2><%= title %></h2>
+    <% if (ok) { %><p><%= message %></p><% } else { %><div class="bao-loi"><%= message %></div><% } %>
+    <div class="auth-lk">
+      <% links.forEach(function (l) { %><a href="<%= l.href %>"><%= l.label %></a><% }) %>
+    </div>
+  </div>
+</main>
+<%- include('../partials/foot') %>

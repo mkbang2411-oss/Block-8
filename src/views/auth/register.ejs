@@ -1,0 +1,35 @@
+<%- include('../partials/head', { title: 'Đăng ký đầu bếp', am: 'quan' }) %>
+<%- include('../partials/auth-style') %>
+<main class="man trang cuon">
+  <div class="thanh"><a class="nut nut-phu" href="/">Ra phố</a><div class="tabs"><a class="nut nut-phu" href="/login">Đăng nhập</a></div></div>
+  <form class="hop hop-giua" method="post" action="/register" autocomplete="on">
+    <h2>Đăng ký đầu bếp</h2>
+    <p class="phu-chu">Chúng tôi sẽ gửi email xác nhận để kích hoạt tài khoản.</p>
+    <% if (error) { %><div class="bao-loi"><%= error %></div><% } %>
+    <div class="truong <%= errors.name ? 'co-loi' : '' %>">
+      <label for="name">Họ tên</label>
+      <input type="text" id="name" name="name" value="<%= values.name %>" autocomplete="name" required maxlength="80">
+      <% if (errors.name) { %><small class="chu-loi"><%= errors.name %></small><% } %>
+    </div>
+    <div class="truong <%= errors.email ? 'co-loi' : '' %>">
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" value="<%= values.email %>" autocomplete="email" required maxlength="254">
+      <% if (errors.email) { %><small class="chu-loi"><%= errors.email %></small><% } %>
+    </div>
+    <div class="truong <%= errors.password ? 'co-loi' : '' %>">
+      <label for="password">Mật khẩu</label>
+      <input type="password" id="password" name="password" autocomplete="new-password" required minlength="8" maxlength="72" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*\d)\S{8,72}">
+      <small class="goi-y-nho">8–72 ký tự, có chữ thường, chữ HOA và số, không chứa khoảng trắng.</small>
+      <% if (errors.password) { %><small class="chu-loi"><%= errors.password %></small><% } %>
+    </div>
+    <div class="truong <%= errors.password2 ? 'co-loi' : '' %>">
+      <label for="password2">Nhập lại mật khẩu</label>
+      <input type="password" id="password2" name="password2" autocomplete="new-password" required maxlength="72">
+      <% if (errors.password2) { %><small class="chu-loi"><%= errors.password2 %></small><% } %>
+    </div>
+    <%- include('../partials/captcha', { capLoi: errors.captcha }) %>
+    <div class="nut-hang"><button class="nut">Đăng ký</button></div>
+    <div class="auth-lk"><a href="/login">Đã có tài khoản? Đăng nhập</a></div>
+  </form>
+</main>
+<%- include('../partials/foot') %>

@@ -1,5 +1,5 @@
 // ===== TRANG CHỦ (phố) + TRANG KHÁCH (bàn tròn chọn món) =====
-//   GET /       phố Ba Cô Gái, bấm vào quán để chọn vai
+//   GET /       phố Ba Cô Gái, bấm vào quán để chọn vai (khách: xem tự do; đầu bếp: phải đăng nhập)
 //   GET /khach  bàn tròn xoay các món LẤY TỪ DATABASE
 const express = require("express");
 const { Dish, Chef, Ingredient } = require("../models");
@@ -8,12 +8,14 @@ const { asyncHandler, dishIcon } = require("../utils/format");
 
 const router = express.Router();
 
-// Ra phố = tự thoát vai (xóa cookie role), vào quán lại sẽ chọn vai từ đầu
 router.get("/", (req, res) => {
-  res.clearCookie("role");
-  res.locals.role = null;
   res.render("home", { pho: taoPho() });
 });
+
+// Hộp chọn vai ở trang phố: khách vào xem thực đơn luôn (không cần đăng nhập), đầu bếp sang trang đăng nhập
+router.get("/vao-quan", (req, res) =>
+  res.redirect(303, req.query.role === "admin" ? "/login" : "/khach"),
+);
 
 router.get(
   "/khach",

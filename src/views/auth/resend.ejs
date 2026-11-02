@@ -1,0 +1,16 @@
+<%- include('../partials/head', { title: 'Gửi lại email xác nhận', am: 'quan' }) %>
+<%- include('../partials/auth-style') %>
+<main class="man trang cuon">
+  <div class="thanh"><a class="nut nut-phu" href="/">Ra phố</a><div class="tabs"><a class="nut nut-phu" href="/login">Đăng nhập</a></div></div>
+  <form class="hop hop-giua" method="post" action="/resend-verification">
+    <h2>Gửi lại email xác nhận</h2>
+    <% if (error) { %><div class="bao-loi"><%= error %></div><% } %>
+    <div class="truong">
+      <label for="email">Email đã đăng ký</label>
+      <input type="email" id="email" name="email" value="<%= email %>" required maxlength="254">
+    </div>
+    <%- include('../partials/captcha') %>
+    <div class="nut-hang"><button class="nut">Gửi lại</button></div>
+  </form>
+</main>
+<%- include('../partials/foot') %>

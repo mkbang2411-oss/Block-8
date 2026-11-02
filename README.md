@@ -25,14 +25,23 @@ Các trang được render ở phía máy chủ (Server-Side Rendering – SSR) 
 - Xem các món trên giao diện bàn tròn và thao tác với món còn phục vụ.
 - Thêm món vào hàng chờ đặt món tạm thời trên trình duyệt.
 
-### Đăng nhập và phân quyền
+### Đăng ký, đăng nhập và phân quyền
 
-- Chọn vai trò **Khách hàng** hoặc **Quản trị / Đầu bếp** tại trang đăng nhập.
-- Khách hàng truy cập giao diện dành cho khách.
-- Quản trị viên được phép truy cập khu vực quản lý dữ liệu.
-- Các đường dẫn quản trị được kiểm tra quyền truy cập ở phía máy chủ.
+- **Khách** xem tự do (`/`, `/khach`, `/dishes`), không cần tài khoản.
+- **Đầu bếp** phải đăng nhập mới vào được toàn bộ CRUD (`/admin/**`); chưa đăng nhập bị chuyển về `/login`.
+- **Đăng ký** (`/register`): họ tên, email, mật khẩu (>= 8 ký tự, có chữ và số) + captcha. Tài khoản chưa kích hoạt cho tới khi bấm liên kết trong **email xác nhận** (hiệu lực 24 giờ, dùng 1 lần; có `/resend-verification` để gửi lại).
+- **Captcha mức 2**: ảnh SVG tự sinh (chữ biến dạng, vẽ bằng path, có nhiễu). Đáp án chỉ lưu dạng hash trong bảng `captchas`, hết hạn 5 phút, dùng 1 lần.
+- Đăng ký xong tự chuyển sang `/login` kèm thông báo kiểm tra email.
+- **Quên mật khẩu** (`/forgot-password` -> `/reset-password`): gửi **OTP 6 số** qua email (CSPRNG, chỉ lưu hash trong bảng `password_resets`, hiệu lực 10 phút, sai 5 lần thì hủy). Đổi mật khẩu xong mọi phiên đăng nhập cũ bị đăng xuất.
+- **Đăng nhập** (`/login`): email + mật khẩu + captcha. Sai 5 lần khóa tài khoản 15 phút; thông báo lỗi không cho biết email có tồn tại hay không.
+- **Phiên**: cookie `sid` (httpOnly, SameSite=Lax, Secure khi production) chứa token ngẫu nhiên 256 bit; bảng `sessions` trong DB chỉ lưu **SHA-256 của token**, hạn 7 ngày. Đổi token mỗi lần đăng nhập. **Đăng xuất** (`POST /logout`) xóa phiên trong DB và xóa cookie.
+- **Sau khi đăng ký** web chuyển sang `/login` kèm thông báo; đăng nhập được sau khi bấm link trong email.
+- **Quên mật khẩu** (`/forgot-password` -> `/reset-password`): gửi OTP 6 số qua email (hiệu lực 10 phút, chỉ lưu hash trong bảng `password_resets`, sai 5 lần thì hủy, dùng 1 lần). Đổi mật khẩu xong mọi phiên cũ bị đăng xuất.
+- **Ràng buộc**: họ tên 2-80 ký tự (chỉ chữ, khoảng trắng, `. ' -`); email hợp lệ, <= 254 ký tự, lưu chữ thường; mật khẩu 8-72 byte, có chữ thường + HOA + số, không khoảng trắng, không chứa tên email/họ tên. Model có thêm `allowNull`, `unique`, độ dài, định dạng hash, khoảng giá trị.
+- **Mật khẩu** lưu bằng **bcrypt (cost 12)**, mỗi mật khẩu có salt riêng nằm sẵn trong chuỗi hash; không lưu mật khẩu gốc.
+- Chặn CSRF bằng kiểm tra `Origin/Referer` cùng nguồn cho mọi POST/PATCH/DELETE, kèm giới hạn số lần gọi theo IP.
 
-> Lưu ý: phiên bản hiện tại dùng cơ chế chọn vai trò, chưa triển khai xác thực bằng mật khẩu hoặc tài khoản cá nhân.
+> Lưu ý: mọi tài khoản đăng ký và xác minh email xong đều là đầu bếp (có quyền CRUD). Nếu muốn giới hạn, hãy thêm mã mời hoặc danh sách email được phép.
 
 ### Quản trị dữ liệu
 
@@ -69,7 +78,11 @@ DATABASE_URL=postgresql://YOUR_CONNECTION_STRING
 PORT=3000
 SUPABASE_URL=
 SUPABASE_SERVICE_ROLE_KEY=
+APP_URL=http://localhost:3000
+SMTP_HOST=... hoặc RESEND_API_KEY=...   # gửi email xác nhận (xem .env.example)
 ```
+
+Khi dev mà chưa cấu hình email, liên kết xác nhận được in ra console của server. Production bắt buộc đặt `NODE_ENV=production`, `APP_URL` và cấu hình gửi email.
 
 Thay `DATABASE_URL` bằng chuỗi kết nối PostgreSQL thực tế trong phần **Project Settings → Database** của Supabase. Dự án khuyến nghị sử dụng **Session pooler, cổng 5432**.
 
@@ -109,8 +122,13 @@ Nếu đã đổi giá trị `PORT` trong `.env`, hãy truy cập cổng tương
 | Giao diện khách     | `GET /khach`                | Bàn tròn hiển thị các món ăn từ cơ sở dữ liệu.            |
 | Danh sách món       | `GET /dishes?q=`            | Hiển thị và tìm kiếm món ăn theo từ khóa.                 |
 | Chi tiết món        | `GET /dishes/:id`           | Xem thông tin của một món; trả về 404 nếu không tìm thấy. |
-| Đăng nhập           | `GET /login`, `POST /login` | Chọn vai trò sử dụng hệ thống.                            |
-| Đăng xuất           | `POST /logout`              | Kết thúc phiên hiện tại.                                  |
+| Đăng ký             | `GET/POST /register`        | Tạo tài khoản đầu bếp + gửi email xác nhận.               |
+| Xác minh email      | `GET /verify-email?token=`  | Kích hoạt tài khoản từ liên kết trong email.              |
+| Gửi lại email       | `GET/POST /resend-verification` | Gửi lại liên kết xác nhận.                            |
+| Captcha             | `GET /captcha`              | Ảnh captcha dùng 1 lần.                                   |
+| Quên mật khẩu       | `GET/POST /forgot-password`, `/reset-password` | Gửi OTP qua email rồi đặt mật khẩu mới.     |
+| Đăng nhập           | `GET/POST /login`           | Email + mật khẩu + captcha, tạo phiên lưu trong DB.       |
+| Đăng xuất           | `POST /logout`              | Xóa phiên trong DB và cookie.                             |
 | Quản lý món ăn      | `/admin/dishes`             | Danh sách và các thao tác quản trị món ăn.                |
 | Quản lý đầu bếp     | `/admin/chefs`              | Danh sách và các thao tác quản trị đầu bếp.               |
 | Quản lý nguyên liệu | `/admin/ingredients`        | Danh sách và các thao tác quản trị nguyên liệu.           |
@@ -152,7 +170,7 @@ Block-5-main/
 
 ## 7. Một số giới hạn của phiên bản hiện tại
 
-- Đăng nhập chỉ là chọn vai trò, chưa có xác thực bằng mật khẩu hoặc tài khoản cá nhân.
+- Chưa có chức năng đổi mật khẩu khi đang đăng nhập và chưa phân biệt nhiều cấp quyền (mọi đầu bếp đã xác minh đều có quyền CRUD).
 - Hàng chờ / thao tác đặt món ở giao diện khách chỉ lưu tạm trên trình duyệt; chưa có bảng đơn hàng trong cơ sở dữ liệu.
 - Dữ liệu đầu bếp hiện chỉ gồm tên và chuyên môn.
 - Dữ liệu nguyên liệu không có số lượng định mức theo từng món; giao diện hiển thị tên và đơn vị tính.

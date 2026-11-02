@@ -2,6 +2,10 @@ const sequelize = require('../config/database');
 const Dish = require('./Dish');
 const Chef = require('./Chef');
 const Ingredient = require('./Ingredient');
+const User = require('./User');
+const Session = require('./Session');
+const Captcha = require('./Captcha');
+const PasswordReset = require('./PasswordReset');
 
 // Mỗi món BẮT BUỘC có một đầu bếp; không xóa được đầu bếp còn đang phụ trách món (RESTRICT)
 Chef.hasMany(Dish, { foreignKey: { name: 'chefId', allowNull: false }, as: 'dishes', onDelete: 'RESTRICT' });
@@ -21,4 +25,11 @@ Ingredient.belongsToMany(Dish, {
   otherKey: 'dishId',
 });
 
-module.exports = { sequelize, Dish, Chef, Ingredient };
+// Tài khoản 1-n phiên đăng nhập; xóa tài khoản thì xóa luôn các phiên
+User.hasMany(Session, { foreignKey: { name: 'userId', allowNull: false }, as: 'sessions', onDelete: 'CASCADE' });
+Session.belongsTo(User, { foreignKey: { name: 'userId', allowNull: false }, as: 'user' });
+
+User.hasMany(PasswordReset, { foreignKey: { name: 'userId', allowNull: false }, as: 'resets', onDelete: 'CASCADE' });
+PasswordReset.belongsTo(User, { foreignKey: { name: 'userId', allowNull: false }, as: 'user' });
+
+module.exports = { sequelize, Dish, Chef, Ingredient, User, Session, Captcha, PasswordReset };
