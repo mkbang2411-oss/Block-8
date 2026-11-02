@@ -1,6 +1,6 @@
 <%- include('../partials/head', { title: 'Danh sách món ăn', am: 'quan' }) %>
-<div class="nen"></div><div class="mo"></div>
-<main class="man bep cuon">
+<div class="nen nen-kinh"></div><div class="mo"></div>
+<main class="man bep ds cuon">
   <%- include('../partials/thanh-tren', { themHref: '/khach', themLabel: 'Bàn chọn món' }) %>
   <%# link giữ nguyên từ khóa tìm kiếm khi sang trang / chọn món %>
   <% const lk = (extra) => '?' + new URLSearchParams(Object.assign(q ? { q } : {}, extra)).toString(); %>
@@ -42,6 +42,7 @@
             <dt>Tình trạng</dt><dd><span class="the <%= d.available ? 'ok' : 'het' %>"><%= d.available ? 'Còn bán' : 'Hết món' %></span></dd>
             <dt>Đầu bếp</dt><dd><%= d.chef ? d.chef.name + (d.chef.specialty ? ' (' + d.chef.specialty + ')' : '') : '—' %></dd>
           </dl>
+          <div class="nut-hang ct-thao-tac"><a class="nut" href="/dishes/<%= d.id %>">Trang chi tiết</a></div>
         </div>
       </section>
       <% }) %>

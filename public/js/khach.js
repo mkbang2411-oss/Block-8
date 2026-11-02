@@ -2,22 +2,69 @@
   const MON = window.MON || [],
     N = MON.length;
   if (!N) return; // chưa có món nào trong DB
-  const STEP = 360 / N,
+  // Chỉ vẽ một "cửa sổ" 5 món quanh món đang chọn (khớp 5 ghế); toàn bộ danh sách vẫn nằm trong MON (server đã gửi sẵn).
+  // Bấm mũi tên: cửa sổ trượt 1 món -> hiện thêm 1 món ở đầu này, món ở đầu kia ẩn đi (đi hết vòng thì quay lại món đầu).
+  // Mỗi món có chỉ số tuyệt đối k (có thể âm hoặc > N), món thật là MON[k mod N]; nhờ vậy vòng xoay liên tục không bị giật.
+  const A = 32, // góc giữa 2 món (độ) = góc giữa 2 ghế trong khach.ejs. Càng lớn các đĩa càng thưa
     R = 64; // R: bán kính vòng món (vh)
-  const vong = $("#vong"),
-    mons = [...vong.querySelectorAll(".mon")];
+  const SO_HIEN = Math.min(N, 5);
+  const DAU = -Math.floor((SO_HIEN - 1) / 2); // 5 món -> -2..+2
+  const DEM = N >= 7 ? 1 : 0; // thêm 1 món ẩn mỗi đầu để món trượt vào / ra có hiệu ứng mờ dần
+  const TU = DAU - DEM,
+    DEN = DAU + SO_HIEN - 1 + DEM;
+  const mod = (a, n) => ((a % n) + n) % n;
+  const vong = $("#vong");
+  const nodes = new Map(); // k -> phần tử nút món
   let idx = 0;
   const hang = new Map(); // id món -> { m, sl, cho }
 
+  function taoNode(k, eager) {
+    const x = MON[mod(k, N)];
+    const b = document.createElement("button");
+    b.dataset.k = k;
+    b.innerHTML = `<span class="dia">${x.anh ? `<img class="anh-dia" src="${esc(x.anh)}" alt="${esc(x.ten)}" loading="${eager ? "eager" : "lazy"}" decoding="async">` : `<em>${x.icon}</em>`}</span><b>${esc(x.ten)}</b>`;
+    return b;
+  }
+  const dat = (el, k, rg) =>
+    (el.style.transform = `rotate(${k * A}deg) translateY(-${R}vh) rotate(${-(rg + k * A)}deg) translate(-50%,-50%)`);
+  const lop = (k, d) =>
+    "mon d" +
+    (Math.abs(d) > 2 ? 3 : Math.abs(d)) +
+    (MON[mod(k, N)].conBan ? "" : " het");
+
   function cap() {
-    const rg = -idx * STEP;
+    const rg = -idx * A;
     vong.style.transform = `rotate(${rg}deg)`;
-    mons.forEach((el, i) => {
-      el.style.transform = `rotate(${i * STEP}deg) translateY(-${R}vh) rotate(${-(rg + i * STEP)}deg) translate(-50%,-50%)`;
-      let d = Math.abs((((i - idx) % N) + N) % N);
-      d = Math.min(d, N - d);
-      el.className = "mon d" + Math.min(d, 2) + (MON[i].conBan ? "" : " het");
-    });
+    const moi = [];
+    for (let d = TU; d <= DEN; d++) {
+      const k = idx + d;
+      let el = nodes.get(k);
+      if (!el) {
+        el = taoNode(k, Math.abs(d) <= 2);
+        el.className = lop(k, 99); // vào cảnh ở trạng thái ẩn rồi mới hiện ra
+        dat(el, k, rg);
+        vong.append(el);
+        nodes.set(k, el);
+        moi.push([el, k, d]);
+      } else {
+        dat(el, k, rg);
+        el.className = lop(k, d);
+      }
+      el.inert = Math.abs(d) > 2;
+    }
+    // món rời khỏi cửa sổ: trượt ra rồi mờ đi, xong thì gỡ khỏi trang
+    for (const [k, el] of nodes) {
+      if (k >= idx + TU && k <= idx + DEN) continue;
+      nodes.delete(k);
+      dat(el, k, rg);
+      el.className = lop(k, 99);
+      el.inert = true;
+      setTimeout(() => el.remove(), 900);
+    }
+    if (moi.length) {
+      void vong.offsetWidth; // ép trình duyệt vẽ trạng thái ẩn trước khi đổi sang trạng thái hiện
+      for (const [el, k, d] of moi) el.className = lop(k, d);
+    }
   }
   const xoay = (k) => {
     if (N < 2) return;
@@ -37,10 +84,10 @@
   vong.addEventListener("click", (e) => {
     const el = e.target.closest(".mon");
     if (!el) return;
-    const i = +el.dataset.i,
-      d = (((i - idx) % N) + N) % N;
-    if (d === 0) moMon(MON[i]);
-    else xoay(d <= N / 2 ? d : d - N); // bấm món bên cạnh -> xoay tới món đó
+    const k = +el.dataset.k,
+      d = k - idx;
+    if (d === 0) moMon(MON[mod(k, N)]);
+    else xoay(d); // bấm món bên cạnh -> xoay tới món đó
   });
 
   // Đơn gọi món hiện chỉ lưu tạm trên trình duyệt (DB chưa có bảng đơn hàng)

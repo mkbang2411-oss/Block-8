@@ -1,8 +1,14 @@
-<%# Dãy trang dùng chung: cần page, totalPages, lk(extra) (tạo link giữ từ khóa tìm kiếm). Luôn hiện, kể cả khi chỉ có 1 trang %>
+<%# Dãy trang rút gọn dùng chung: < 1 2 … 9 10 > — luôn có trang đầu, trang cuối và 2 trang quanh trang hiện tại. Cần page, totalPages, lk(extra). Luôn hiện, kể cả khi chỉ có 1 trang %>
+<%
+  const hien = new Set([1, totalPages]);
+  for (let n = page - 2; n <= page + 2; n++) if (n >= 1 && n <= totalPages) hien.add(n);
+  const dsTrang = [...hien].sort((a, b) => a - b);
+%>
 <nav class="phan-trang" aria-label="Phân trang">
   <% if (page === 1) { %><span class="nut nut-phu tat">&lt;</span><% } else { %><a class="nut nut-phu" href="<%= lk({ page: page - 1 }) %>" aria-label="Trang trước">&lt;</a><% } %>
-  <% for (let n = 1; n <= totalPages; n++) { %>
-    <a class="nut <%= n === page ? 'on' : 'nut-phu' %>" href="<%= lk({ page: n }) %>"><%= n %></a>
-  <% } %>
+  <% let truoc = 0; dsTrang.forEach(function (n) { %>
+    <% if (n - truoc > 1) { %><span class="cach" aria-hidden="true">…</span><% } %>
+    <a class="nut <%= n === page ? 'on' : 'nut-phu' %>" href="<%= lk({ page: n }) %>"<%- n === page ? ' aria-current="page"' : '' %>><%= n %></a>
+  <% truoc = n; }) %>
   <% if (page === totalPages) { %><span class="nut nut-phu tat">&gt;</span><% } else { %><a class="nut nut-phu" href="<%= lk({ page: page + 1 }) %>" aria-label="Trang sau">&gt;</a><% } %>
 </nav>

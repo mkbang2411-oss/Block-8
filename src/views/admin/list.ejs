@@ -1,6 +1,6 @@
 <%- include('../partials/head', { title: 'Quản trị ' + r.title, am: 'bep' }) %>
-<div class="nen"></div><div class="mo"></div>
-<main class="man bep cuon">
+<div class="nen nen-kinh"></div><div class="mo"></div>
+<main class="man bep ds cuon">
   <%- include('_nav', { active: r.key, themHref: '/admin/' + r.key + '/new', themLabel: '+ Thêm ' + r.singular }) %>
   <% if (flash) { %><div class="bao bao-tinh"><%= flash %></div><% } %>
   <div class="chia<%= sel ? ' co-chon' : '' %>" id="chia">

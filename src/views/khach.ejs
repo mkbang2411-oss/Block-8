@@ -10,9 +10,8 @@
   <% if (!mon.length) { %>
     <div class="trong"><div class="hop"><h2>Quán chưa có món</h2><p>Đầu bếp chưa thêm món nào vào thực đơn.</p></div></div>
   <% } else { %>
-  <div class="ban"><div class="ghe-vong"><% [-50, -25, 0, 25, 50].forEach(a => { %><i class="ghe" style="transform:rotate(<%= a %>deg) translateY(-99vh)"></i><% }) %></div><div class="mat"><div class="vong" id="vong">
-    <% mon.forEach((x, i) => { %><button class="mon" data-i="<%= i %>"><span class="dia"><% if (x.anh) { %><img class="anh-dia" src="<%= x.anh %>" alt="<%= x.ten %>" loading="<%= i < 3 ? 'eager' : 'lazy' %>" decoding="async"><% } else { %><em><%= x.icon %></em><% } %></span><b><%= x.ten %></b></button><% }) %>
-  </div></div></div>
+  <div class="ban"><div class="ghe-vong"><% [-2, -1, 0, 1, 2].forEach(k => { const a = k * 32; // 32 = góc giữa 2 ghế, phải trùng GOC_MON trong khach.js
+   %><i class="ghe" style="transform:rotate(<%= a %>deg) translateY(-99vh)"></i><% }) %></div><div class="mat"><div class="vong" id="vong"></div></div></div>
   <% } %>
   <div class="nang" aria-hidden="true">
     <% [[4, 7], [20, 10], [38, 6], [56, 9]].forEach((t, k) => { %><i class="tia" style="--l:<%= t[0] %>%;--w:<%= t[1] %>vw;--dl:-<%= k * 2 %>s"></i><% }) %>

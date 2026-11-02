@@ -1,18 +1,36 @@
 <% const isEdit = !!record; %>
-<%- include('../partials/head', { title: (isEdit ? 'Sửa ' : 'Thêm ') + r.singular, am: 'bep' }) %>
+<%# món ăn có ô nguyên liệu + ảnh -> 2 tờ giấy (trái: thông tin chung, phải: nguyên liệu & ảnh); đầu bếp / nguyên liệu: 1 tờ %>
+<% const trai = r.fields.filter(f => f.type !== 'multiselect' && f.type !== 'image');
+   const phai = r.fields.filter(f => f.type === 'multiselect' || f.type === 'image');
+   const haiTo = phai.length > 0;
+   const tieuDe = (isEdit ? 'Sửa ' : 'Thêm ') + r.singular; %>
+<%- include('../partials/head', { title: tieuDe, am: 'bep' }) %>
 <div class="nen"></div><div class="mo"></div>
 <main class="man bep cuon">
   <%- include('_nav', { active: r.key }) %>
   <%# novalidate: để server kiểm tra và trả 400 %>
-    <form method="post" enctype="multipart/form-data" novalidate class="hop hop-giua rong"
+  <form method="post" enctype="multipart/form-data" novalidate id="form" class="giay-form<%= haiTo ? ' hai-to' : '' %>"
+        data-res="<%= r.key %>"<% if (isEdit) { %> data-id="<%= record.id %>"<% } %>
         action="<%= isEdit ? `/admin/${r.key}/${record.id}?_method=PATCH` : `/admin/${r.key}` %>">
-    <h2><%= isEdit ? 'Sửa' : 'Thêm' %> <%= r.singular %></h2>
-    <% if (Object.keys(errors).length) { %><div class="bao-loi">Dữ liệu chưa hợp lệ, vui lòng kiểm tra lại (giá trị đã nhập được giữ nguyên).</div><% } %>
-    <%- include('_truong', { r, values, errors, options, idp: 'f-' }) %>
+    <div class="bao-loi" id="loi"<%= Object.keys(errors).length ? '' : ' hidden' %>>Dữ liệu chưa hợp lệ, vui lòng kiểm tra lại (giá trị đã nhập được giữ nguyên).</div>
+    <div class="giay-luoi">
+      <section class="to-giay">
+        <span class="to-bang" aria-hidden="true"></span>
+        <header class="to-dau"><h2><%= tieuDe %></h2><% if (haiTo) { %><p>Thông tin chung</p><% } else { %><p><%= isEdit ? 'Sửa xong bấm “Lưu thay đổi”' : 'Điền xong bấm “Thêm mới”' %></p><% } %></header>
+        <div class="to-than"><%- include('_truong', { fields: trai, r, values, errors, options, idp: 'f-' }) %></div>
+      </section>
+      <% if (haiTo) { %>
+      <section class="to-giay">
+        <span class="to-bang" aria-hidden="true"></span>
+        <header class="to-dau"><h2>Nguyên liệu &amp; ảnh</h2><p>Bấm vào nguyên liệu để chọn, bấm lần nữa để bỏ</p></header>
+        <div class="to-than"><%- include('_truong', { fields: phai, r, values, errors, options, idp: 'f-' }) %></div>
+      </section>
+      <% } %>
+    </div>
     <div class="nut-hang">
-      <a class="nut nut-phu" href="/admin/<%= r.key %>">Hủy</a>
+      <a class="nut nut-phu" id="huy" href="/admin/<%= r.key %><%= isEdit ? '?sel=' + record.id : '' %>">Hủy</a>
       <button class="nut"><%= isEdit ? 'Lưu thay đổi' : 'Thêm mới' %></button>
     </div>
   </form>
 </main>
-<%- include('../partials/foot') %>
+<%- include('../partials/foot', { scripts: ['/js/form.js'] }) %>

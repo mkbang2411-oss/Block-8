@@ -3,6 +3,46 @@
 (() => {
   const chia = $("#chia");
   if (!chia) return;
+
+  // Nhớ URL danh sách (đúng trang) để Hủy / sau khi lưu quay về đúng chỗ, không rơi về trang 1
+  const kd = "ds-admin:" + (location.pathname.split("/")[2] || "");
+  const u0 = new URL(location.href);
+  const nho = () => {
+    const u = new URL(location.href);
+    u.searchParams.delete("sel");
+    u.searchParams.delete("success");
+    try {
+      sessionStorage.setItem(kd, u.pathname + u.search);
+    } catch (e) {}
+  };
+  if (location.pathname.startsWith("/admin")) {
+    // vừa sửa xong: server đưa về /admin/xxx?sel=ID mà không biết trang -> nếu món chưa hiện thì chuyển về trang đã nhớ
+    try {
+      const luu = sessionStorage.getItem(kd);
+      if (
+        luu &&
+        u0.searchParams.get("sel") &&
+        !u0.searchParams.get("page") &&
+        !chia.querySelector(".o.chon")
+      ) {
+        const v = new URL(luu, location.href);
+        if (
+          v.searchParams.get("page") &&
+          chia.querySelector(".o") &&
+          v.pathname === u0.pathname
+        ) {
+          ["sel", "success"].forEach(
+            (k) =>
+              u0.searchParams.get(k) &&
+              v.searchParams.set(k, u0.searchParams.get(k)),
+          );
+          return location.replace(v.pathname + v.search);
+        }
+      }
+    } catch (e) {}
+    nho();
+  }
+
   chia.addEventListener("click", (e) => {
     if (!e.target.closest('[data-a="dong"]')) return;
     chia.classList.remove("co-chon");
