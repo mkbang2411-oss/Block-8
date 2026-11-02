@@ -36,6 +36,18 @@
       <img src="/img/pho/nha-hang.webp" width="1100" height="1286" alt="Cái Quán Ăn" draggable="false" decoding="async">
     </button>
     <% pho.days.slice(3).forEach(veDay) %>
+  <%# ---- cô gái áo dài đứng ở đầu phố (cuộn cùng phố) + 2 bảng treo: Đăng xuất / Đăng nhập ---- %>
+    <div class="cong-dn" id="cong-dn">
+      <img class="co-gai" src="/img/pho/co-gai.webp" width="294" height="640" alt="" draggable="false" decoding="async">
+      <div class="bang-ds">
+        <% if (role) { %>
+        <form method="post" action="/logout"><button class="bang" aria-label="Đăng xuất"><img src="/img/pho/bang-dang-xuat.webp" width="440" height="222" alt="Đăng xuất" draggable="false" decoding="async"></button></form>
+        <% } else { %>
+        <button type="button" class="bang" id="dang-xuat" aria-label="Đăng xuất"><img src="/img/pho/bang-dang-xuat.webp" width="440" height="222" alt="Đăng xuất" draggable="false" decoding="async"></button>
+        <% } %>
+        <button type="button" class="bang" id="dang-nhap" aria-label="Đăng nhập"><img src="/img/pho/bang-dang-nhap.webp" width="440" height="222" alt="Đăng nhập" draggable="false" decoding="async"></button>
+      </div>
+    </div>
   </div>
 
   <div class="nang" aria-hidden="true">

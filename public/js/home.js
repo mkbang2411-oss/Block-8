@@ -86,6 +86,20 @@
       Am.phat("mo");
     }
   });
+  // bảng treo ở đầu phố: Đăng nhập -> cùng hộp chọn vai như bấm vào nhà hàng
+  const dangNhap = $("#dang-nhap"),
+    dangXuat = $("#dang-xuat");
+  if (dangNhap)
+    dangNhap.addEventListener("click", () => {
+      if (moved >= 6) return;
+      hopVai.hidden = false;
+      Am.phat("mo");
+    });
+  // trang phố luôn là trạng thái đã ra khỏi quán (server xóa role khi vào "/"); có role thì bảng là form POST /logout thật
+  if (dangXuat)
+    dangXuat.addEventListener("click", () => {
+      if (moved < 6) bao("Bạn chưa đăng nhập");
+    });
   form.addEventListener("change", () => (vao.disabled = false));
   $("#de-sau").onclick = () => (hopVai.hidden = true);
   form.addEventListener("submit", (e) => {

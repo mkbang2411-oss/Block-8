@@ -3379,3 +3379,65 @@ html[data-vao]::before {
   opacity: 0.6;
   padding: 0 2px;
 }
+
+/* ---- đầu phố: cô gái áo dài + 2 bảng treo Đăng xuất / Đăng nhập (nằm trong #pho nên cuộn cùng phố) ---- */
+.cong-dn {
+  position: absolute;
+  left: calc(var(--u) * 5);
+  bottom: calc(var(--u) * -3.4); /* đứng trên vỉa hè */
+  z-index: 4;
+  display: flex;
+  align-items: flex-end;
+  gap: calc(var(--u) * 0.6);
+  pointer-events: none; /* chỉ 2 bảng bấm được, phần còn lại vẫn kéo phố được */
+}
+.cong-dn .co-gai {
+  display: block;
+  height: calc(var(--u) * 23);
+  width: auto;
+  filter: drop-shadow(
+    0 calc(var(--u) * 0.5) calc(var(--u) * 0.8) rgba(70, 40, 10, 0.3)
+  );
+}
+.bang-ds {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--u) * 1);
+  margin-bottom: calc(var(--u) * 4);
+}
+.bang-ds form {
+  display: contents;
+}
+.bang {
+  pointer-events: auto;
+  display: block;
+  width: calc(var(--u) * 12);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transform-origin: 50% 0; /* treo từ mép trên */
+  filter: drop-shadow(
+    0 calc(var(--u) * 0.4) calc(var(--u) * 0.6) rgba(70, 40, 10, 0.28)
+  );
+  transition: transform 0.3s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+.bang img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.bang:hover,
+.bang:focus-visible {
+  transform: rotate(-2.5deg) scale(1.04);
+}
+.bang:focus-visible {
+  outline: 3px solid var(--do);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bang {
+    transition: none;
+  }
+}
