@@ -1,9 +1,9 @@
 <%# Trang ĐĂNG NHẬP / ĐĂNG KÝ (ban đêm): sông + thuyền bên trái, hoa đăng trôi, khung đăng nhập/đăng ký bên phải.
     tab = 'login' | 'register' (GET /login, GET /register dùng chung 1 view; JS chuyển tab không tải lại trang).
     Các form gọi API thật (routes/auth.js) bằng fetch JSON, xem public/js/dang-nhap.js %>
-<% const tab = locals.tab === 'register' ? 'register' : 'login'; %>
-<%- include('partials/head', { title: tab === 'register' ? 'Đăng ký' : 'Đăng nhập', am: 'quan' }) %>
-<main class="man dn" data-tab="<%= tab %>" data-next="<%= locals.next || '' %>">
+<% const tab = locals.tab === 'register' ? 'register' : locals.tab === 'reset' ? 'reset' : 'login'; %>
+<%- include('partials/head', { title: tab === 'register' ? 'Đăng ký' : tab === 'reset' ? 'Đặt lại mật khẩu' : 'Đăng nhập', am: 'quan' }) %>
+<main class="man dn" data-tab="<%= tab %>" data-next="<%= locals.next || '' %>" data-notice="<%= locals.notice || '' %>">
   <%# ---- bầu trời đêm: sao nhấp nháy + 2 vệt sáng ánh trăng (dịu hơn trang phố) ---- %>
   <div class="dn-troi" aria-hidden="true">
     <% for (let k = 0; k < 22; k++) { %><i class="dn-sao" style="--x:<%= 2 + Math.floor(Math.random() * 96) %>%;--y:<%= 2 + Math.floor(Math.random() * 56) %>%;--s:<%= (1.2 + Math.random() * 1.8).toFixed(1) %>px;--t:<%= (2.4 + Math.random() * 3).toFixed(1) %>s;--dl:-<%= (Math.random() * 5).toFixed(1) %>s"></i><% } %>
@@ -41,7 +41,7 @@
 
   <%# ================== KHUNG ĐĂNG NHẬP / ĐĂNG KÝ ================== %>
   <section class="dn-the" aria-label="Đăng nhập và đăng ký">
-    <div class="dn-tab" role="tablist" aria-label="Chọn đăng nhập hoặc đăng ký">
+    <div class="dn-tab" role="tablist" aria-label="Chọn đăng nhập hoặc đăng ký"<%- tab === 'reset' ? ' hidden style="display:none"' : '' %>>
       <button type="button" role="tab" class="dn-tab-nut<%= tab === 'login' ? ' on' : '' %>" id="tab-dn" data-tab="login" aria-controls="p-dn" aria-selected="<%= tab === 'login' %>" tabindex="<%= tab === 'login' ? 0 : -1 %>">Đăng nhập</button>
       <button type="button" role="tab" class="dn-tab-nut<%= tab === 'register' ? ' on' : '' %>" id="tab-dk" data-tab="register" aria-controls="p-dk" aria-selected="<%= tab === 'register' %>" tabindex="<%= tab === 'register' ? 0 : -1 %>">Đăng ký</button>
       <i class="dn-tab-vach" aria-hidden="true"></i>
@@ -51,69 +51,90 @@
     <div class="dn-pane" id="p-dn" role="tabpanel" aria-labelledby="tab-dn"<%- tab === 'login' ? '' : ' hidden' %>>
       <h1 class="dn-tieude">Chào mừng trở lại</h1>
       <p class="dn-phu">Đăng nhập để tiếp tục sử dụng hệ thống.</p>
-      <% if (locals.error) { %><div class="bao-loi" role="alert"><%= error %></div><% } %>
+      <div class="bao-loi" id="dn-loi-chung" role="alert"<%- (locals.error && tab === 'login') ? '' : ' hidden' %>><%= (tab === 'login' && locals.error) ? error : '' %></div>
       <form id="f-dn" method="post" action="/login" novalidate>
+        <input type="hidden" name="next" value="<%= locals.next || '' %>">
         <label class="dn-truong"><span>Địa chỉ email</span>
-          <input type="email" name="email" autocomplete="username" placeholder="ten@email.com" required>
+          <input type="email" name="email" autocomplete="username" placeholder="ten@email.com" value="<%= locals.email || '' %>" required>
           <small class="dn-loi" role="alert"></small></label>
         <label class="dn-truong"><span>Mật khẩu</span>
           <span class="dn-mk"><input type="password" name="password" autocomplete="current-password" placeholder="Nhập mật khẩu" required>
             <button type="button" class="dn-mat" aria-label="Hiện mật khẩu" aria-pressed="false"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M1.5 12S5.5 5 12 5s10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path class="gach" d="M4 4l16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></span>
           <small class="dn-loi" role="alert"></small></label>
+        <%# CAPTCHA đăng nhập: luôn có trong trang nhưng ẨN, chỉ hiện khi đã đăng nhập sai từ 3 lần (server quyết định: needCaptcha; JS bỏ hidden khi server báo needCaptcha). Có RECAPTCHA_SITE_KEY thì reCAPTCHA thật, không thì ô giả lập (dev) %>
+        <div id="dn-cap-khoi"<%- locals.needCaptcha ? '' : ' hidden' %>>
+        <% if (locals.recaptchaSiteKey) { %>
+        <div class="dn-rc"><div class="g-recaptcha" id="cap-dn-rc" data-sitekey="<%= recaptchaSiteKey %>"></div></div>
+        <% } else { %>
+        <div class="dn-cap" id="cap-dn" role="checkbox" aria-checked="false" aria-labelledby="cap-dn-chu" tabindex="0">
+          <span class="dn-cap-o" aria-hidden="true"></span>
+          <span class="dn-cap-chu" id="cap-dn-chu">Tôi không phải là người máy</span>
+          <svg class="dn-cap-hinh" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M12 2.5 4.5 5.8v5.6c0 4.6 3.1 8.1 7.5 10.1 4.4-2 7.5-5.5 7.5-10.1V5.8z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m8.6 12.2 2.4 2.4 4.4-4.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <input type="hidden" name="recaptcha" id="cap-dn-val" value="">
+        <% } %>
+        <small class="dn-loi" id="loi-cap-dn" role="alert"></small>
+        </div>
         <a class="dn-quen" href="/login" id="quen-mk">Quên mật khẩu?</a>
         <button class="dn-nut" type="submit"><span>Đăng nhập</span></button>
       </form>
       <p class="dn-chuyen">Chưa có tài khoản? <a href="/register" data-chuyen="register">Đăng ký ngay</a></p>
     </div>
 
-    <%# ---------- QUÊN MẬT KHẨU (không phải tab: mở từ link "Quên mật khẩu?"; 3 bước giống đăng ký: 1 email -> 2 mã OTP -> 3 mật khẩu mới) ---------- %>
+    <%# ---------- QUÊN MẬT KHẨU (không phải tab: mở từ link "Quên mật khẩu?"): nhập email -> server gửi EMAIL CHỨA LINK đặt lại mật khẩu (/reset-password?token=...) ---------- %>
     <div class="dn-pane" id="p-qm" role="region" aria-labelledby="qm-tieude" hidden>
       <div id="qm-dau">
         <h1 class="dn-tieude" id="qm-tieude">Quên mật khẩu</h1>
-        <p class="dn-phu" id="qm-phu">Nhập email đã đăng ký, chúng tôi sẽ gửi mã xác thực 6 số.</p>
-        <ol class="dn-buoc" id="qm-buoc" aria-label="Các bước đặt lại mật khẩu">
-          <li class="on" data-b="1" aria-current="step"><b>1</b></li>
-          <li data-b="2"><b>2</b></li>
-          <li data-b="3"><b>3</b></li>
-        </ol>
+        <p class="dn-phu" id="qm-phu">Nhập email đã đăng ký, chúng tôi sẽ gửi một đường link để bạn đặt lại mật khẩu.</p>
       </div>
 
-      <%# Bước 1: email %>
-      <form class="dn-q" data-q="1" id="f-q1" novalidate>
+      <form class="dn-q" id="f-q1" novalidate>
         <label class="dn-truong"><span>Địa chỉ email</span>
           <input type="email" name="email" autocomplete="username" placeholder="ten@email.com" required>
           <small class="dn-loi" role="alert"></small></label>
-        <button class="dn-nut" type="submit"><span>Gửi mã xác thực</span></button>
+        <button class="dn-nut" type="submit"><span>Gửi link đặt lại mật khẩu</span></button>
       </form>
 
-      <%# Bước 2: OTP 6 số %>
-      <form class="dn-q" data-q="2" id="f-q2" hidden novalidate>
-        <div class="dn-otp" role="group" aria-label="Mã xác thực 6 số">
-          <% for (let k = 0; k < 6; k++) { %><input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" autocomplete="<%= k === 0 ? 'one-time-code' : 'off' %>" aria-label="Số thứ <%= k + 1 %>"><% } %>
-        </div>
-        <small class="dn-loi giua" id="loi-qotp" role="alert"></small>
-        <button class="dn-nut" type="submit"><span>Xác nhận mã</span></button>
+      <%# đã gửi: luôn hiện thông báo này dù email có tài khoản hay không %>
+      <div class="dn-xong" id="qm-xong" hidden>
+        <svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true"><circle cx="32" cy="32" r="29" fill="none" stroke="currentColor" stroke-width="3.5"/><path d="m19 33 9 9 18-20" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <h1 class="dn-tieude">Hãy kiểm tra email</h1>
+        <p class="dn-phu" id="qm-xong-phu"></p>
         <div class="dn-phu-hang">
           <button type="button" class="dn-lk" id="q-doi-email">← Đổi email</button>
-          <button type="button" class="dn-lk" id="q-gui-lai" disabled>Gửi lại mã</button>
+          <button type="button" class="dn-lk" id="q-gui-lai" disabled>Gửi lại link</button>
         </div>
-      </form>
-
-      <%# Bước 3: mật khẩu mới %>
-      <form class="dn-q" data-q="3" id="f-q3" hidden novalidate>
-        <label class="dn-truong"><span>Mật khẩu mới</span>
-          <input type="password" name="matKhau" autocomplete="new-password" placeholder="Nhập mật khẩu mới" required aria-describedby="qm-luat-mk">
-          <ul class="dn-dk" id="qm-luat-mk" aria-live="polite"></ul>
-          <small class="dn-loi" role="alert"></small></label>
-        <label class="dn-truong"><span>Nhập lại mật khẩu</span>
-          <input type="password" name="matKhau2" autocomplete="new-password" placeholder="Nhập lại mật khẩu" required aria-describedby="qm-luat-mk2">
-          <ul class="dn-dk" id="qm-luat-mk2" aria-live="polite"></ul>
-          <small class="dn-loi" role="alert"></small></label>
-        <button class="dn-nut" type="submit"><span>Đặt lại mật khẩu</span></button>
-      </form>
+      </div>
 
       <p class="dn-chuyen"><a href="/login" id="qm-ve">← Quay lại đăng nhập</a></p>
     </div>
+
+    <%# ---------- ĐẶT LẠI MẬT KHẨU (mở từ link trong email: GET /reset-password?token=...; form thường POST /reset-password -> 303 /login?reset=1) ---------- %>
+    <% if (tab === 'reset') { %>
+    <div class="dn-pane" id="p-dm" role="region" aria-labelledby="dm-tieude">
+      <% if (locals.resetValid === false) { %>
+      <h1 class="dn-tieude" id="dm-tieude">Link không dùng được</h1>
+      <div class="bao-loi" role="alert">Link đặt lại mật khẩu không hợp lệ hoặc đã hết hạn (mỗi link chỉ dùng 1 lần, hiệu lực 30 phút).</div>
+      <a class="dn-nut" href="/login?quen=1" id="dm-gui-lai" style="text-align:center;text-decoration:none"><span>Gửi lại link mới</span></a>
+      <% } else { const re = locals.resetErrors || {}; %>
+      <h1 class="dn-tieude" id="dm-tieude">Đặt lại mật khẩu</h1>
+      <p class="dn-phu">Chọn mật khẩu mới cho tài khoản của bạn.</p>
+      <form id="f-dm" method="post" action="/reset-password" novalidate>
+        <input type="hidden" name="token" value="<%= locals.resetToken || '' %>">
+        <label class="dn-truong"><span>Mật khẩu mới</span>
+          <input type="password" name="matKhau" autocomplete="new-password" placeholder="Nhập mật khẩu mới" required aria-describedby="dm-luat-mk"<%- re.matKhau ? ' class="loi" aria-invalid="true"' : '' %>>
+          <ul class="dn-dk" id="dm-luat-mk" aria-live="polite"></ul>
+          <small class="dn-loi" role="alert"><%= re.matKhau || '' %></small></label>
+        <label class="dn-truong"><span>Nhập lại mật khẩu</span>
+          <input type="password" name="matKhau2" autocomplete="new-password" placeholder="Nhập lại mật khẩu" required aria-describedby="dm-luat-mk2"<%- re.matKhau2 ? ' class="loi" aria-invalid="true"' : '' %>>
+          <ul class="dn-dk" id="dm-luat-mk2" aria-live="polite"></ul>
+          <small class="dn-loi" role="alert"><%= re.matKhau2 || '' %></small></label>
+        <button class="dn-nut" type="submit"><span>Đặt lại mật khẩu</span></button>
+      </form>
+      <% } %>
+      <p class="dn-chuyen"><a href="/login">← Quay lại đăng nhập</a></p>
+    </div>
+    <% } %>
 
     <%# ---------- ĐĂNG KÝ: 3 bước (1 email + xác nhận không phải người máy -> 2 mã OTP -> 3 thông tin cá nhân) ---------- %>
     <div class="dn-pane" id="p-dk" role="tabpanel" aria-labelledby="tab-dk"<%- tab === 'register' ? '' : ' hidden' %>>
@@ -134,7 +155,7 @@
           <small class="dn-loi" role="alert"></small></label>
         <%# "Không phải người máy" (bước 1, TRƯỚC khi server gửi OTP): có RECAPTCHA_SITE_KEY thì hiện reCAPTCHA thật, không thì ô giả lập (server chỉ kiểm tra khi có RECAPTCHA_SECRET_KEY) %>
         <% if (locals.recaptchaSiteKey) { %>
-        <div class="dn-rc"><div class="g-recaptcha" id="cap-rc" data-sitekey="<%= recaptchaSiteKey %>" data-callback="capXong" data-expired-callback="capHet"></div></div>
+        <div class="dn-rc"><div class="g-recaptcha" id="cap-rc" data-sitekey="<%= recaptchaSiteKey %>"></div></div>
         <% } else { %>
         <div class="dn-cap" id="cap" role="checkbox" aria-checked="false" aria-labelledby="cap-chu" tabindex="0">
           <span class="dn-cap-o" aria-hidden="true"></span>
@@ -193,5 +214,6 @@
     </div>
   </section>
 </main>
-<% if (locals.recaptchaSiteKey) { %><script src="https://www.google.com/recaptcha/api.js" async defer></script><% } %>
+<%# render=explicit: trang có thể có 2 widget (đăng ký + đăng nhập khi sai >= 3 lần), JS tự vẽ từng cái và giữ id riêng %>
+<% if (locals.recaptchaSiteKey) { %><script src="https://www.google.com/recaptcha/api.js?render=explicit&onload=capSan" async defer></script><% } %>
 <%- include('partials/foot', { scripts: ['/js/dang-nhap.js'] }) %>

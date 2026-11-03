@@ -1,17 +1,21 @@
-// ===== ĐĂNG KÝ (3 bước, OTP email) + ĐĂNG NHẬP (cookie + session trong DB) + QUÊN MẬT KHẨU (OTP) + ĐĂNG XUẤT =====
-// Giao diện (views/login.ejs + public/js/dang-nhap.js) gọi các API dưới đây bằng fetch JSON:
+// ===== ĐĂNG KÝ (3 bước, OTP email) + ĐĂNG NHẬP (cookie + session trong DB) + QUÊN MẬT KHẨU (link token) + ĐĂNG XUẤT =====
+// Giao diện (views/login.ejs + public/js/dang-nhap.js):
 //   GET  /login, /register      trang đăng nhập / đăng ký (cùng 1 view, khác tab mở sẵn)
-//   POST /login                 {email, password, next?}          -> tạo session, đặt cookie `sid`
-//   POST /register/otp          {email, recaptcha}                -> bước 1: xác minh CAPTCHA TRƯỚC, rồi mới gửi OTP 6 số tới email
-//   POST /register/verify       {email, otp}                      -> bước 2: kiểm tra OTP, trả `ticket` dùng 1 lần
-//   POST /register              {email, ticket, hoTen, role, matKhau, matKhau2} -> bước 3: tạo tài khoản (đã xác minh email + CAPTCHA ở bước 1)
-//   POST /forgot-password       {email}                           -> gửi OTP đặt lại mật khẩu
-//   POST /forgot-password/verify {email, otp}                     -> kiểm tra mã (bước 2, chưa hủy mã)
-//   POST /reset-password        {email, otp, matKhau, matKhau2}   -> đổi mật khẩu, đăng xuất mọi thiết bị
-//   POST /chon-vai              form role=user|admin              -> chọn vai ở trang phố (cần đã đăng nhập)
-//   POST /avatar                multipart image                   -> đổi ảnh đại diện (vé hành khách ở trang phố)
-//   POST /logout                xóa session trong DB + xóa cookie
-// Thành công: {ok:true,...}; lỗi: {ok:false, error:"thông báo", field?:"tên ô lỗi"} kèm mã HTTP 4xx.
+//   POST /login                 FORM thường (email, password, next?, g-recaptcha-response? khi đã sai >= 3 lần)
+//                               -> đúng: tạo session, đặt cookie `sid`, redirect 303 tới `next` hoặc "/"
+//                               -> sai: render lại trang đăng nhập kèm thông báo (401/400/429), KHÔNG trả JSON
+//                               Sai từ 3 lần: bắt CAPTCHA. Sai đủ 10 lần: khóa 5 phút.
+//   POST /register/otp          {email, recaptcha}   JSON -> bước 1: xác minh CAPTCHA TRƯỚC, rồi mới gửi OTP 6 số tới email.
+//                               Email đã có tài khoản vẫn trả y hệt email mới ({ok:true,cooldown}) -> không dò được email nào đã đăng ký
+//   POST /register/verify       {email, otp}         JSON -> bước 2: kiểm tra OTP, trả `ticket` dùng 1 lần
+//   POST /register              {email, ticket, hoTen, role, matKhau, matKhau2} JSON -> bước 3: tạo tài khoản
+//   POST /forgot-password       {email}              JSON -> gửi EMAIL CHỨA LINK /reset-password?token=... (luôn báo thành công)
+//   GET  /reset-password?token= trang nhập mật khẩu mới (token sai / hết hạn -> báo lỗi)
+//   POST /reset-password        FORM (token, matKhau, matKhau2) -> đổi mật khẩu, hủy token, đăng xuất mọi thiết bị, redirect 303 /login?reset=1
+//   POST /chon-vai              form role=user|admin -> chọn vai ở trang phố (cần đã đăng nhập)
+//   POST /avatar                multipart image      -> đổi ảnh đại diện (vé hành khách ở trang phố)
+//   POST /logout                xóa session trong DB + xóa cookie, redirect 303 /login
+// API JSON: thành công {ok:true,...}; lỗi {ok:false, error:"thông báo", field?:"tên ô lỗi"} kèm mã HTTP 4xx.
 const crypto = require("crypto");
 const express = require("express");
 const bcrypt = require("bcryptjs");
@@ -30,7 +34,12 @@ const {
   cookieOptions,
   safeNext,
 } = require("../utils/security");
-const { sendMail, otpEmailContent } = require("../utils/mailer");
+const {
+  sendMail,
+  otpEmailContent,
+  resetLinkEmailContent,
+  existsEmailContent,
+} = require("../utils/mailer");
 const { verifyRecaptcha } = require("../utils/recaptcha");
 const { rateLimit } = require("../utils/rateLimit");
 const { asyncHandler } = require("../utils/format");
@@ -50,14 +59,32 @@ const router = express.Router();
 const BCRYPT_COST = 12; // 2^12 vòng băm: đủ chậm để chặn dò mật khẩu, vẫn < 0.5s/lần
 const RESEND_COOLDOWN_MS = 60 * 1000;
 const REGISTER_OTP_MINUTES = 5;
-const RESET_OTP_MINUTES = 10;
+const RESET_LINK_MINUTES = 30; // link đặt lại mật khẩu có hiệu lực 30 phút, dùng 1 lần
 const OTP_MAX_TRIES = 5;
 const ACCOUNT_ROLES = ["customer", "chef"]; // vai chọn lúc đăng ký: khách hàng | đầu bếp
 const TICKET_MINUTES = 15; // từ lúc nhập đúng OTP đến lúc phải bấm "Hoàn tất đăng ký"
-const MAX_FAILS = 5;
-const LOCK_MS = 15 * 60 * 1000;
+const CAPTCHA_AFTER = 3; // đăng nhập sai từ 3 lần: bắt CAPTCHA
+const LOCK_AFTER = 10; // đăng nhập sai đủ 10 lần: khóa
+const LOCK_MS = 5 * 60 * 1000; // ... trong 5 phút
+const TOKEN_RE = /^[a-f0-9]{64}$/;
 // hash giả: so sánh khi email không tồn tại để thời gian phản hồi không lộ email nào có tài khoản
 const DUMMY_HASH = bcrypt.hashSync("khong-ton-tai", BCRYPT_COST);
+
+// Email KHÔNG có tài khoản cũng bị đếm lần sai (trong RAM) để hành vi y hệt email có tài khoản (cùng lúc đòi CAPTCHA, cùng lúc khóa)
+// -> người ngoài không dò được email nào đã đăng ký qua việc "có đòi CAPTCHA hay không".
+const ghostFails = new Map(); // email -> { fails, lockedUntil, at }
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [k, v] of ghostFails)
+      if (
+        (!v.lockedUntil || v.lockedUntil <= now) &&
+        now - v.at > 60 * 60 * 1000
+      )
+        ghostFails.delete(k);
+  },
+  15 * 60 * 1000,
+).unref();
 
 const HOUR = 60 * 60 * 1000;
 const limitLogin = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
@@ -78,7 +105,6 @@ const fail = (res, status, error, field) =>
 
 const newOtp = () => String(crypto.randomInt(0, 1000000)).padStart(6, "0"); // CSPRNG, 6 chữ số
 const otpHashReg = (email, otp) => sha256(`reg:${email}:${otp}`);
-const otpHashReset = (userId, otp) => sha256(`${userId}:${otp}`);
 
 // đã đăng nhập thì khỏi vào lại trang đăng nhập / đăng ký
 const guestOnly = (req, res, next) =>
@@ -92,63 +118,116 @@ const pageData = () => ({
 });
 
 // ---------------------------------------------------------------- TRANG
+// locals của login.ejs: error | notice | email (điền lại) | needCaptcha (hiện CAPTCHA ở form đăng nhập) | tab | next | reset*
+const loginView = (extra = {}) => ({
+  error: null,
+  notice: null,
+  email: "",
+  needCaptcha: false,
+  tab: "login",
+  next: "",
+  ...pageData(),
+  ...extra,
+});
 router.get("/login", guestOnly, (req, res) =>
-  res.render("login", {
-    error: null,
-    tab: "login",
-    next: safeNext(req.query.next, ""),
-    ...pageData(),
-  }),
+  res.render(
+    "login",
+    loginView({
+      next: safeNext(req.query.next, ""),
+      notice:
+        req.query.reset === "1"
+          ? "Đặt lại mật khẩu thành công, hãy đăng nhập bằng mật khẩu mới."
+          : null,
+    }),
+  ),
 );
 router.get("/register", guestOnly, (req, res) =>
-  res.render("login", {
-    error: null,
-    tab: "register",
-    next: "",
-    ...pageData(),
-  }),
+  res.render("login", loginView({ tab: "register" })),
 );
 
-// ---------------------------------------------------------------- ĐĂNG NHẬP
+// ---------------------------------------------------------------- ĐĂNG NHẬP (form thường -> 303)
 router.post(
   "/login",
   guestOnly,
   limitLogin,
-  jsonOnly,
   asyncHandler(async (req, res) => {
     const email = normEmail(req.body.email);
     const password = String(req.body.password || "");
+    const next = safeNext(req.body.next, "");
+    // đăng nhập sai: vẽ lại trang đăng nhập kèm thông báo, điền lại email, giữ `next`
+    // Không JS (form thường): vẽ lại cả trang. Có JS (fetch gửi Accept: application/json): trả JSON để trang tự hiện lỗi tại chỗ.
+    // Đăng nhập ĐÚNG thì cả hai đều nhận redirect 303.
+    const back = (status, error, needCaptcha = false) =>
+      /application\/json/.test(req.get("accept") || "")
+        ? res.status(status).json({ ok: false, error, needCaptcha })
+        : res
+            .status(status)
+            .render("login", loginView({ error, email, next, needCaptcha }));
+
     if (!email || !password || password.length > 200)
-      return fail(res, 400, "Vui lòng nhập email và mật khẩu.");
+      return back(400, "Vui lòng nhập email và mật khẩu.");
 
     const user = await User.findOne({ where: { email } });
+    const st = user
+      ? { fails: user.failedLogins, lockedUntil: user.lockedUntil }
+      : ghostFails.get(email) || { fails: 0, lockedUntil: null };
+
+    // đang khóa: từ chối ngay (dù mật khẩu đúng hay sai)
+    if (st.lockedUntil && st.lockedUntil > new Date()) {
+      const phut = Math.max(
+        1,
+        Math.ceil((st.lockedUntil - Date.now()) / 60000),
+      );
+      return back(
+        429,
+        `Bạn đã nhập sai quá nhiều lần. Vui lòng thử lại sau khoảng ${phut} phút.`,
+      );
+    }
+
+    // đã sai từ 3 lần: PHẢI qua CAPTCHA trước khi server kiểm tra mật khẩu (bot không dò được mật khẩu nếu không có token)
+    if (st.fails >= CAPTCHA_AFTER) {
+      const token = req.body["g-recaptcha-response"] || req.body.recaptcha;
+      if (!(await verifyRecaptcha(token, req.ip)))
+        return back(400, "Vui lòng xác nhận bạn không phải người máy.", true);
+    }
+
     // luôn chạy bcrypt.compare (kể cả email không tồn tại) để thời gian xử lý như nhau
     const match = await bcrypt.compare(
       password,
       user ? user.passwordHash : DUMMY_HASH,
     );
 
-    if (user && user.lockedUntil && user.lockedUntil > new Date()) {
-      return fail(
-        res,
-        429,
-        "Tài khoản tạm khóa do nhập sai nhiều lần, vui lòng thử lại sau ít phút.",
+    if (!user || !match) {
+      const fails = st.fails + 1;
+      const khoa = fails >= LOCK_AFTER;
+      const lockedUntil = khoa ? new Date(Date.now() + LOCK_MS) : null;
+      if (user)
+        await user.update({
+          failedLogins: khoa ? 0 : fails,
+          lockedUntil,
+        });
+      else {
+        if (ghostFails.size > 20000) ghostFails.clear(); // chặn phình RAM khi bị spam email lạ
+        ghostFails.set(email, {
+          fails: khoa ? 0 : fails,
+          lockedUntil,
+          at: Date.now(),
+        });
+      }
+      if (khoa)
+        return back(
+          429,
+          "Bạn đã nhập sai 10 lần. Đăng nhập tạm khóa 5 phút, vui lòng thử lại sau.",
+        );
+      // cùng 1 thông báo cho "email không tồn tại" và "sai mật khẩu"
+      return back(
+        401,
+        "Email hoặc mật khẩu không đúng.",
+        !khoa && fails >= CAPTCHA_AFTER,
       );
     }
-    if (!user || !match) {
-      if (user) {
-        const fails = user.failedLogins + 1;
-        await user.update(
-          fails >= MAX_FAILS
-            ? { failedLogins: 0, lockedUntil: new Date(Date.now() + LOCK_MS) }
-            : { failedLogins: fails },
-        );
-      }
-      return fail(res, 401, "Email hoặc mật khẩu không đúng.", "password"); // cùng 1 thông báo cho 2 trường hợp
-    }
     if (!user.emailVerifiedAt) {
-      return fail(
-        res,
+      return back(
         403,
         "Email này chưa được xác thực. Hãy đăng ký lại bằng email này để nhận mã xác thực.",
       );
@@ -172,7 +251,7 @@ router.post(
     });
     res.cookie(SESSION_COOKIE, token, cookieOptions(SESSION_MS));
     res.clearCookie("role"); // vào phố rồi chọn vai lại từ đầu
-    ok(res, { next: safeNext(req.body.next, "/") });
+    res.redirect(303, next || "/"); // Post/Redirect/Get: F5 không gửi lại mật khẩu
   }),
 );
 
@@ -199,26 +278,30 @@ router.post(
       );
     }
 
+    // Email mới và email ĐÃ CÓ tài khoản phải nhận CÙNG MỘT phản hồi ({ok:true, cooldown}), nếu không người ngoài dò được
+    // email nào đã đăng ký. Email đã có tài khoản: không tạo OTP, chỉ gửi thư "bạn đã có tài khoản" cho chủ email.
+    const SEND_FAIL = "Không gửi được email xác thực, vui lòng thử lại sau.";
     const existing = await User.findOne({ where: { email } });
     if (existing && existing.emailVerifiedAt) {
-      return fail(
-        res,
-        409,
-        'Email này đã có tài khoản. Hãy đăng nhập, hoặc dùng "Quên mật khẩu" nếu bạn quên mật khẩu.',
-        "email",
-      );
+      try {
+        await sendMail({
+          to: email,
+          ...existsEmailContent({
+            name: existing.name,
+            baseUrl: baseUrl(req),
+          }),
+        });
+      } catch (err) {
+        console.error("Gửi thư 'đã có tài khoản' thất bại:", err.message);
+        return fail(res, 502, SEND_FAIL, "email");
+      }
+      return ok(res, { cooldown: RESEND_COOLDOWN_MS / 1000 });
     }
+
     const old = await RegisterOtp.findOne({ where: { email } });
     if (old && Date.now() - old.sentAt.getTime() < RESEND_COOLDOWN_MS) {
-      const wait = Math.ceil(
-        (RESEND_COOLDOWN_MS - (Date.now() - old.sentAt.getTime())) / 1000,
-      );
-      return fail(
-        res,
-        429,
-        `Vui lòng đợi ${wait} giây trước khi yêu cầu mã mới.`,
-        "email",
-      );
+      // đang trong thời gian chờ: không gửi thêm nhưng vẫn báo như bình thường (giống cách email đã có tài khoản được xử lý)
+      return ok(res, { cooldown: RESEND_COOLDOWN_MS / 1000 });
     }
 
     const otp = newOtp();
@@ -238,19 +321,13 @@ router.post(
           name: "",
           otp,
           minutes: REGISTER_OTP_MINUTES,
-          kind: "register",
           baseUrl: baseUrl(req),
         }),
       });
     } catch (err) {
       console.error("Gửi OTP đăng ký thất bại:", err.message);
       await row.destroy();
-      return fail(
-        res,
-        502,
-        "Không gửi được email xác thực, vui lòng thử lại sau.",
-        "email",
-      );
+      return fail(res, 502, SEND_FAIL, "email");
     }
     ok(res, { cooldown: RESEND_COOLDOWN_MS / 1000 });
   }),
@@ -306,7 +383,7 @@ router.post(
       .replace(/\s+/g, " ");
     const password = String(req.body.matKhau || "");
     const password2 = String(req.body.matKhau2 || "");
-      const accountRole = String(req.body.role || "");
+    const accountRole = String(req.body.role || "");
 
     // 1) vé từ bước 2: chứng minh email này đã nhập đúng OTP
     const row = V.validateEmail(email)
@@ -332,7 +409,12 @@ router.post(
     const eName = V.validateName(name);
     if (eName) return fail(res, 400, eName, "hoTen");
     if (!ACCOUNT_ROLES.includes(accountRole))
-    return fail(res, 400, "Vui lòng chọn vai trò (khách hàng hoặc đầu bếp).", "role");
+      return fail(
+        res,
+        400,
+        "Vui lòng chọn vai trò (khách hàng hoặc đầu bếp).",
+        "role",
+      );
     const ePass = V.validatePassword(password, { email, name });
     if (ePass) return fail(res, 400, ePass, "matKhau");
     if (password !== password2)
@@ -367,7 +449,9 @@ router.post(
   }),
 );
 
-// ---------------------------------------------------------------- QUÊN MẬT KHẨU (OTP)
+// ---------------------------------------------------------------- QUÊN MẬT KHẨU (link token qua email)
+// B1: POST /forgot-password {email} -> email chứa link /reset-password?token=<256 bit>; DB chỉ lưu SHA-256 của token.
+// B2: GET  /reset-password?token=   -> form mật khẩu mới.   B3: POST /reset-password -> đổi mật khẩu rồi 303 /login?reset=1.
 router.post(
   "/forgot-password",
   guestOnly,
@@ -383,29 +467,26 @@ router.post(
       const cooling =
         old && Date.now() - old.sentAt.getTime() < RESEND_COOLDOWN_MS;
       if (!cooling) {
-        const otp = newOtp();
-        const keptAttempts = old ? old.attempts : 0;
-        await PasswordReset.destroy({ where: { userId: user.id } }); // mỗi người chỉ có 1 OTP còn hiệu lực
+        const token = randomToken();
+        await PasswordReset.destroy({ where: { userId: user.id } }); // mỗi người chỉ có 1 link còn hiệu lực (link cũ chết)
         await PasswordReset.create({
           userId: user.id,
-          otpHash: otpHashReset(user.id, otp), // chỉ lưu hash, không lưu OTP
-          expiresAt: new Date(Date.now() + RESET_OTP_MINUTES * 60 * 1000),
-          attempts: keptAttempts,
+          tokenHash: sha256(token), // chỉ lưu hash, không lưu token
+          expiresAt: new Date(Date.now() + RESET_LINK_MINUTES * 60 * 1000),
           sentAt: new Date(),
         });
         try {
           await sendMail({
             to: user.email,
-            ...otpEmailContent({
+            ...resetLinkEmailContent({
               name: user.name,
-              otp,
-              minutes: RESET_OTP_MINUTES,
-              kind: "reset",
+              link: `${baseUrl(req)}/reset-password?token=${token}`,
+              minutes: RESET_LINK_MINUTES,
               baseUrl: baseUrl(req),
             }),
           });
         } catch (err) {
-          console.error("Gửi OTP đặt lại mật khẩu thất bại:", err.message);
+          console.error("Gửi link đặt lại mật khẩu thất bại:", err.message);
         }
       }
     }
@@ -414,75 +495,75 @@ router.post(
   }),
 );
 
-// Bước 2 của quên mật khẩu: chỉ KIỂM TRA mã (không hủy mã), để giao diện có đủ 3 bước giống đăng ký.
-// Bước 3 (/reset-password) kiểm tra lại mã lần nữa trước khi đổi mật khẩu. Sai quá 5 lần thì hủy mã.
-router.post(
-  "/forgot-password/verify",
-  guestOnly,
-  limitReset,
-  jsonOnly,
+// token còn hiệu lực -> dòng PasswordReset; sai định dạng / không có / hết hạn -> null
+async function findReset(token) {
+  if (!TOKEN_RE.test(token)) return null;
+  const row = await PasswordReset.findOne({
+    where: { tokenHash: sha256(token) },
+  });
+  if (!row) return null;
+  if (row.expiresAt < new Date()) {
+    await row.destroy();
+    return null;
+  }
+  return row;
+}
+// trang chứa token trên URL: không cache, không gửi Referer ra site khác (same-origin: KHÔNG dùng no-referrer vì sẽ làm Origin của form POST thành "null" và bị sameOriginOnly chặn)
+const khongLuuVet = (req, res, next) => {
+  res.set({ "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
+  next();
+};
+const resetView = (res, status, extra = {}) =>
+  res.status(status).render(
+    "login",
+    loginView({
+      tab: "reset",
+      resetToken: "",
+      resetValid: true,
+      resetErrors: {},
+      ...extra,
+    }),
+  );
+
+router.get(
+  "/reset-password",
+  khongLuuVet,
   asyncHandler(async (req, res) => {
-    const email = normEmail(req.body.email);
-    const otp = String(req.body.otp || "").trim();
-    if (V.validateEmail(email)) return fail(res, 400, "Email không hợp lệ.");
-    if (!V.OTP_RE.test(otp)) return fail(res, 400, "Vui lòng nhập đủ 6 số.");
-    const BAD = "Mã chưa đúng hoặc đã hết hạn. Bạn có thể yêu cầu mã mới.";
-    const user = await User.findOne({ where: { email } });
-    const row = user
-      ? await PasswordReset.findOne({ where: { userId: user.id } })
-      : null;
-    if (!user || !row || row.expiresAt < new Date()) {
-      if (row) await row.destroy();
-      return fail(res, 400, BAD);
-    }
-    if (!safeEqual(row.otpHash, otpHashReset(user.id, otp))) {
-      if (row.attempts + 1 >= OTP_MAX_TRIES) await row.destroy();
-      else await row.update({ attempts: row.attempts + 1 });
-      return fail(res, 400, BAD);
-    }
-    ok(res);
+    const token = String(req.query.token || "");
+    const row = await findReset(token);
+    if (!row) return resetView(res, 400, { resetValid: false });
+    resetView(res, 200, { resetToken: token });
   }),
 );
 
 router.post(
   "/reset-password",
-  guestOnly,
   limitReset,
-  jsonOnly,
+  khongLuuVet,
   asyncHandler(async (req, res) => {
-    const email = normEmail(req.body.email);
-    const otp = String(req.body.otp || "").trim();
+    const token = String(req.body.token || "");
     const password = String(req.body.matKhau || "");
     const password2 = String(req.body.matKhau2 || "");
+    const row = await findReset(token);
+    if (!row) return resetView(res, 400, { resetValid: false });
+    const user = await User.findByPk(row.userId);
+    if (!user) {
+      await row.destroy();
+      return resetView(res, 400, { resetValid: false });
+    }
 
-    if (V.validateEmail(email)) return fail(res, 400, "Email không hợp lệ.");
-    if (!V.OTP_RE.test(otp))
-      return fail(res, 400, "Vui lòng nhập đủ 6 số.", "otp");
-    const user = await User.findOne({ where: { email } });
+    const errors = {};
     const ePass = V.validatePassword(password, {
-      email,
-      name: user ? user.name : "",
+      email: user.email,
+      name: user.name,
     });
-    if (ePass) return fail(res, 400, ePass, "matKhau");
-    if (password !== password2)
-      return fail(res, 400, "Mật khẩu nhập lại chưa khớp.", "matKhau2");
+    if (ePass) errors.matKhau = ePass;
+    else if (password !== password2)
+      errors.matKhau2 = "Mật khẩu nhập lại chưa khớp.";
+    if (errors.matKhau || errors.matKhau2)
+      return resetView(res, 400, { resetToken: token, resetErrors: errors });
 
-    const BAD = "Mã chưa đúng hoặc đã hết hạn. Bạn có thể yêu cầu mã mới.";
-    const row = user
-      ? await PasswordReset.findOne({ where: { userId: user.id } })
-      : null;
-    if (!user || !row || row.expiresAt < new Date()) {
-      if (row) await row.destroy();
-      return fail(res, 400, BAD, "otp");
-    }
-    if (!safeEqual(row.otpHash, otpHashReset(user.id, otp))) {
-      // quá 5 lần sai thì hủy OTP (chặn dò 1 triệu khả năng)
-      if (row.attempts + 1 >= OTP_MAX_TRIES) await row.destroy();
-      else await row.update({ attempts: row.attempts + 1 });
-      return fail(res, 400, BAD, "otp");
-    }
-
-    // OTP đúng: đổi mật khẩu, hủy OTP, mở khóa, đăng xuất mọi thiết bị
+    // token đúng: đổi mật khẩu, hủy token (dùng 1 lần), mở khóa, đăng xuất mọi thiết bị
     await user.update({
       passwordHash: await bcrypt.hash(password, BCRYPT_COST),
       failedLogins: 0,
@@ -490,7 +571,7 @@ router.post(
     });
     await PasswordReset.destroy({ where: { userId: user.id } });
     await Session.destroy({ where: { userId: user.id } });
-    ok(res);
+    res.redirect(303, "/login?reset=1");
   }),
 );
 
@@ -503,7 +584,7 @@ router.post("/chon-vai", requireAuth, (req, res) => {
       message: "Vui lòng chọn vai hợp lệ (khách hoặc đầu bếp).",
     });
   }
-    // tài khoản đăng ký là khách hàng thì không được vào quán với vai đầu bếp
+  // tài khoản đăng ký là khách hàng thì không được vào quán với vai đầu bếp
   if (!canUseRole(req.user.role, role)) {
     return res.status(403).render("error", {
       status: 403,

@@ -31,15 +31,16 @@ Giao diện đăng nhập/đăng ký (`/login`, `/register`) gọi API thật c�
 
 - **Đăng ký 3 bước**: (1) nhập email + tick "không phải người máy" (CAPTCHA) -> server xác minh CAPTCHA rồi mới gửi **OTP 6 số** qua email; (2) nhập OTP; (3) họ tên, vai trò, mật khẩu. Tài khoản được tạo sẵn là đã xác minh email, không cần bấm link.
 - **OTP đăng ký**: CSPRNG, chỉ lưu hash trong bảng `register_otps`, hiệu lực 5 phút, sai 5 lần thì hủy, gửi lại sau 60 giây (mỗi lần gửi / gửi lại đều phải qua CAPTCHA). Nhập đúng OTP thì nhận "vé" dùng 1 lần (15 phút) cho bước 3.
-- **Đăng nhập**: email + mật khẩu. Sai 5 lần khóa tài khoản 15 phút; thông báo lỗi không cho biết email có tồn tại hay không.
-- **Quên mật khẩu**: link "Quên mật khẩu?" ở trang đăng nhập -> OTP 6 số qua email (10 phút, sai 5 lần thì hủy) + mật khẩu mới. Đổi xong mọi phiên cũ bị đăng xuất.
+- **Đăng nhập**: form HTML thường, `POST /login` thành công thì server **redirect 303**. **Sai từ 3 lần thì bắt CAPTCHA** (reCAPTCHA kiểm tra TRƯỚC khi so mật khẩu), **sai đủ 10 lần thì khóa 5 phút**. Email không có tài khoản cũng bị đếm y hệt, thông báo lỗi không cho biết email có tồn tại hay không.
+- **Đăng ký bằng email đã có tài khoản**: server trả cùng phản hồi như email mới (không báo 409), chỉ gửi cho chủ email một thư "bạn đã có tài khoản"; nhập OTP sau đó sẽ báo "mã chưa đúng".
+- **Quên mật khẩu**: link "Quên mật khẩu?" ở trang đăng nhập -> email chứa **link `/reset-password?token=...`** (token ngẫu nhiên 256 bit, DB chỉ lưu SHA-256, hiệu lực 30 phút, dùng 1 lần) -> trang nhập mật khẩu mới -> redirect 303 về `/login`. Đổi xong mọi phiên cũ bị đăng xuất; luôn báo "đã gửi" dù email có tài khoản hay không.
 - **Email OTP** dùng mẫu Hội An (`src/utils/mailer.js`), ảnh nền `public/img/email/hoian-bg.jpg` được tải từ `APP_URL`. Dev chưa cấu hình email thì mã OTP in ra console của server.
 - **Phiên**: cookie `sid` (httpOnly, SameSite=Lax, Secure khi production) chứa token ngẫu nhiên 256 bit; bảng `sessions` chỉ lưu **SHA-256** của token, hạn 7 ngày. Đổi token mỗi lần đăng nhập. **Đăng xuất** (`POST /logout`) xóa phiên trong DB và cookie.
 - **Đăng xuất**: bấm vào chiếc thuyền ở góc sông (trang phố) -> hộp hỏi "Bạn có chắc muốn đăng xuất?" -> đồng ý thì `POST /logout`.
 - **Vé hành khách**: bấm cô gái áo dài ở đầu phố để mở vé (tên + ảnh đại diện tròn). Ảnh được kéo/zoom và cắt vuông ngay trên trình duyệt, gửi `POST /avatar`; server resize 512px + thumbnail 240px lưu vào thư mục `avatars/` của bucket `dish-images` (cột `users.avatarUrl`, `users.avatarPath` tự được thêm khi khởi động).
 - **Chọn vai**: sau khi đăng nhập, bấm vào nhà hàng ở trang phố để chọn **Khách hàng** hoặc **Đầu bếp** (`POST /chon-vai`). Khu `/admin/**` bắt buộc có phiên đăng nhập thật và đang ở vai Đầu bếp; chưa đăng nhập thì chuyển về `/login`.
 - **Mật khẩu** lưu bằng **bcrypt (cost 12)**. Ràng buộc: 8-72 byte, có chữ thường + HOA + số, không khoảng trắng, không chứa tên email/họ tên.
-- **reCAPTCHA** (tùy chọn): đặt `RECAPTCHA_SITE_KEY` + `RECAPTCHA_SECRET_KEY` để bước 1 (trước khi server gửi OTP) dùng Google reCAPTCHA v2 thật. Để trống thì giao diện dùng ô giả lập và server không kiểm tra.
+- **reCAPTCHA** (tùy chọn): đặt `RECAPTCHA_SITE_KEY` + `RECAPTCHA_SECRET_KEY` để bước 1 (trước khi server gửi OTP) dùng Google reCAPTCHA v2 thật. Để trống: dev dùng ô giả lập và server không kiểm tra; **production thiếu `RECAPTCHA_SECRET_KEY` thì server từ chối** (đăng ký không gửi được OTP, đăng nhập sai từ 3 lần không đăng nhập được nữa). Dùng ở: bước 1 đăng ký và đăng nhập sai từ 3 lần.
 - Chặn CSRF bằng kiểm tra `Origin/Referer` cùng nguồn cho mọi POST/PATCH/DELETE, kèm giới hạn số lần gọi theo IP.
 
 > Lưu ý: mọi tài khoản đăng ký xong đều chọn được vai Đầu bếp (có quyền CRUD). Nếu muốn giới hạn, hãy thêm mã mời hoặc danh sách email được phép.
@@ -117,21 +118,21 @@ Nếu đã đổi giá trị `PORT` trong `.env`, hãy truy cập cổng tương
 
 ## 4. Các trang và đường dẫn
 
-| Chức năng           | Phương thức và đường dẫn                              | Mô tả                                                     |
-| ------------------- | ----------------------------------------------------- | --------------------------------------------------------- |
-| Trang chủ           | `GET /`                                               | Giao diện con phố Ba Cô Gái.                              |
-| Giao diện khách     | `GET /khach`                                          | Bàn tròn hiển thị các món ăn từ cơ sở dữ liệu.            |
-| Danh sách món       | `GET /dishes?q=`                                      | Hiển thị và tìm kiếm món ăn theo từ khóa.                 |
-| Chi tiết món        | `GET /dishes/:id`                                     | Xem thông tin của một món; trả về 404 nếu không tìm thấy. |
-| Đăng nhập / đăng ký | `GET /login`, `GET /register`                         | Trang đăng nhập + đăng ký (cùng một giao diện, 2 tab).    |
-| Đăng nhập           | `POST /login`                                         | Email + mật khẩu, tạo phiên lưu trong DB (JSON).          |
-| Đăng ký             | `POST /register/otp`, `/register/verify`, `/register` | 3 bước: CAPTCHA + gửi OTP, kiểm tra OTP, tạo tài khoản.           |
-| Quên mật khẩu       | `POST /forgot-password`, `/reset-password`            | Gửi OTP qua email rồi đặt mật khẩu mới.                   |
-| Chọn vai            | `POST /chon-vai`                                      | Chọn Khách hàng / Đầu bếp sau khi đăng nhập.              |
-| Đăng xuất           | `POST /logout`                                        | Xóa phiên trong DB và cookie, về `/login`.                |
-| Quản lý món ăn      | `/admin/dishes`                                       | Danh sách và các thao tác quản trị món ăn.                |
-| Quản lý đầu bếp     | `/admin/chefs`                                        | Danh sách và các thao tác quản trị đầu bếp.               |
-| Quản lý nguyên liệu | `/admin/ingredients`                                  | Danh sách và các thao tác quản trị nguyên liệu.           |
+| Chức năng           | Phương thức và đường dẫn                              | Mô tả                                                                                              |
+| ------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Trang chủ           | `GET /`                                               | Giao diện con phố Ba Cô Gái.                                                                       |
+| Giao diện khách     | `GET /khach`                                          | Bàn tròn hiển thị các món ăn từ cơ sở dữ liệu.                                                     |
+| Danh sách món       | `GET /dishes?q=`                                      | Hiển thị và tìm kiếm món ăn theo từ khóa.                                                          |
+| Chi tiết món        | `GET /dishes/:id`                                     | Xem thông tin của một món; trả về 404 nếu không tìm thấy.                                          |
+| Đăng nhập / đăng ký | `GET /login`, `GET /register`                         | Trang đăng nhập + đăng ký (cùng một giao diện, 2 tab).                                             |
+| Đăng nhập           | `POST /login`                                         | Form thường; đúng -> 303, sai -> vẽ lại trang kèm lỗi. Sai >= 3 lần: CAPTCHA; 10 lần: khóa 5 phút. |
+| Đăng ký             | `POST /register/otp`, `/register/verify`, `/register` | 3 bước: CAPTCHA + gửi OTP, kiểm tra OTP, tạo tài khoản.                                            |
+| Quên mật khẩu       | `POST /forgot-password`, `GET/POST /reset-password`   | Gửi link token qua email, mở link để đặt mật khẩu mới.                                             |
+| Chọn vai            | `POST /chon-vai`                                      | Chọn Khách hàng / Đầu bếp sau khi đăng nhập.                                                       |
+| Đăng xuất           | `POST /logout`                                        | Xóa phiên trong DB và cookie, về `/login`.                                                         |
+| Quản lý món ăn      | `/admin/dishes`                                       | Danh sách và các thao tác quản trị món ăn.                                                         |
+| Quản lý đầu bếp     | `/admin/chefs`                                        | Danh sách và các thao tác quản trị đầu bếp.                                                        |
+| Quản lý nguyên liệu | `/admin/ingredients`                                  | Danh sách và các thao tác quản trị nguyên liệu.                                                    |
 
 Trong mỗi khu vực quản trị, các thao tác gồm xem danh sách, mở biểu mẫu thêm mới, tạo bản ghi, mở biểu mẫu chỉnh sửa, cập nhật và xác nhận xóa. Danh sách hỗ trợ phân trang bằng tham số `?page=`.
 

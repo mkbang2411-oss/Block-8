@@ -59,19 +59,8 @@ const esc = (s) =>
       ],
   );
 
-// Nội dung từng loại OTP
-const OTP_KIND = {
-  register: {
-    subject: "Mã xác thực đăng ký - Cái Quán Ăn",
-    lead: "mời bạn nhập mã bên dưới để xác thực email và tiếp tục đăng ký.",
-  },
-  reset: {
-    subject: "Mã OTP đặt lại mật khẩu - Cái Quán Ăn",
-    lead: "mời bạn nhập mã bên dưới để đặt lại mật khẩu.",
-  },
-};
-
-// Email OTP theo mẫu Hội An (otp-email.html). Viết lại cho trình đọc mail (Gmail, Outlook...): bố cục bằng <table>, CSS inline,
+// Khung email chung. `khoi` là phần giữa (HTML) + `khoiText` là bản chữ thường của nó cho trình đọc mail không hiện HTML.
+// Email theo mẫu Hội An (otp-email.html), dùng chung cho: OTP đăng ký, link đặt lại mật khẩu, thông báo "email đã có tài khoản". Viết lại cho trình đọc mail (Gmail, Outlook...): bố cục bằng <table>, CSS inline,
 // font có dự phòng, KHÔNG dùng JS / biến CSS / SVG.
 // Ảnh nền hoian-bg.jpg (dựng từ hoian-bg.svg) được tải từ APP_URL, và PHẢI là địa chỉ công khai (https://...):
 //   - Gmail/Outlook.com tải ảnh qua máy chủ của họ nên KHÔNG thấy được http://localhost.
@@ -82,10 +71,19 @@ const isPublicUrl = (u) =>
   /^https:\/\//i.test(u) &&
   !/^https:\/\/(localhost|127\.|10\.|192\.168\.)/i.test(u);
 let warnedBg = false;
-function otpEmailContent({ name, otp, minutes, kind = "reset", baseUrl = "" }) {
-  const k = OTP_KIND[kind] || OTP_KIND.reset;
+function renderMail({
+  subject,
+  name,
+  heading,
+  lead,
+  khoi,
+  hanHtml,
+  hanText,
+  textBody,
+  baseUrl = "",
+  minutes = 0,
+}) {
   const who = name ? esc(name) : "bạn";
-  const hien = `${otp.slice(0, 3)} ${otp.slice(3)}`; // 483 192 (dấu cách không ngắt dòng)
   const bg = baseUrl ? `${baseUrl}/img/email/hoian-bg.jpg` : "";
   if (bg && !isPublicUrl(baseUrl) && !warnedBg) {
     warnedBg = true;
@@ -93,22 +91,15 @@ function otpEmailContent({ name, otp, minutes, kind = "reset", baseUrl = "" }) {
       `[mail] APP_URL=${baseUrl} không phải địa chỉ https công khai: Gmail/Outlook sẽ không tải được ảnh nền Hội An (chỉ thấy nền gradient thay cho ảnh). Đặt APP_URL=https://... khi chạy thật.`,
     );
   }
-  // Lớp gradient vẽ lại cảnh Hội An (trời pastel + biển xanh): hiện khi ảnh bị chặn (mail trong Spam, localhost, tắt ảnh)
   const scene =
     "linear-gradient(180deg,#dbe8f8 0%,#e7d6ea 33%,#f4dfd3 52%,#f2dcba 57%,#9dc4a5 58%,#7bbdb0 64%,#2d7a85 100%)";
   const bgStyle = bg
     ? `background-color:#7bbdb0;background-image:url('${esc(bg)}'),${scene};background-position:center center;background-repeat:no-repeat;background-size:cover;`
     : `background-color:#7bbdb0;background-image:${scene};`;
-  // Georgia thiếu vài tổ hợp dấu tiếng Việt (ế, ấ, ề...) nên dùng Palatino/Times; DejaVu Serif cho máy Linux/ChromeOS
   const serif =
     "'Palatino Linotype',Palatino,'Times New Roman','DejaVu Serif',serif";
-  // giờ hết hạn (giờ Việt Nam): vừa hữu ích vừa làm mỗi thư khác nhau để Gmail không tự thu gọn phần cuối thành "..."
-  const hanLuc = new Date(Date.now() + minutes * 60 * 1000).toLocaleTimeString(
-    "vi-VN",
-    { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" },
-  );
   const html = `<!DOCTYPE html>
-<html lang="vi" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mã xác thực OTP</title></head>
+<html lang="vi" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(heading)}</title></head>
 <body style="margin:0;padding:0;background-color:#7bbdb0;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#7bbdb0"${bg ? ` background="${esc(bg)}"` : ""} style="${bgStyle}">
 <tr><td align="center" valign="top" bgcolor="#7bbdb0"${bg ? ` background="${esc(bg)}"` : ""} style="${bgStyle}padding:32px 14px;">
@@ -118,13 +109,10 @@ ${bg ? `<!--[if gte mso 9]><v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill=
   <tr><td align="center" style="padding:30px 30px 28px;font-family:${serif};color:#3a2214;">
     <div style="font-size:12px;line-height:16px;letter-spacing:4px;text-transform:uppercase;font-weight:bold;color:#4f8f7a;">Cái Quán Ăn</div>
     <div style="font-size:34px;line-height:46px;margin-top:6px;">🪷</div>
-    <h1 style="margin:4px 0 10px;font-family:${serif};font-size:30px;line-height:1.25;font-weight:bold;color:#3a2214;">Mã xác thực của bạn</h1>
-    <p style="margin:0;font-size:16px;line-height:1.6;color:#5b4a44;">Chào <b style="color:#3a2214;">${who}</b>, ${k.lead}</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:22px 0 16px;">
-    <tr><td align="center" bgcolor="#ffffff" style="padding:18px 8px;background-color:#ffffff;border:2px solid #efc6d4;border-radius:16px;">
-      <span style="font-family:${serif};font-size:46px;line-height:1;font-weight:bold;letter-spacing:10px;color:#3a2214;">${hien}</span>
-    </td></tr></table>
-    <p style="margin:0;font-size:14px;line-height:1.55;color:#6f5e58;">Mã có hiệu lực trong <b>${minutes} phút</b> (đến ${hanLuc}).<br>Vui lòng không chia sẻ mã này cho bất kỳ ai.</p>
+    <h1 style="margin:4px 0 10px;font-family:${serif};font-size:30px;line-height:1.25;font-weight:bold;color:#3a2214;">${esc(heading)}</h1>
+    <p style="margin:0;font-size:16px;line-height:1.6;color:#5b4a44;">Chào <b style="color:#3a2214;">${who}</b>, ${lead}</p>
+    ${khoi}
+    ${hanHtml ? `<p style="margin:0;font-size:14px;line-height:1.55;color:#6f5e58;">${hanHtml}</p>` : ""}
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="60%" style="margin:18px auto 14px;"><tr><td height="1" style="height:1px;line-height:1px;font-size:0;background-color:#ecd9d3;">&nbsp;</td></tr></table>
     <p style="margin:0;font-size:13px;line-height:1.5;color:#8a7a74;">Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
   </td></tr></table>
@@ -132,10 +120,83 @@ ${bg ? "<!--[if gte mso 9]></v:textbox></v:rect><![endif]-->" : ""}
 </td></tr></table>
 </body></html>`;
   return {
-    subject: k.subject,
-    text: `Chào ${name || "bạn"},\n\nMã xác thực của bạn: ${otp}\nMã có hiệu lực ${minutes} phút (đến ${hanLuc}). Tuyệt đối không chia sẻ mã này cho bất kỳ ai.\n\nNếu bạn không yêu cầu, hãy bỏ qua email này.`,
+    subject,
+    text: `Chào ${name || "bạn"},\n\n${textBody}\n\nNếu bạn không yêu cầu, hãy bỏ qua email này.`,
     html,
   };
 }
 
-module.exports = { sendMail, otpEmailContent };
+// giờ hết hạn (giờ Việt Nam): vừa hữu ích vừa làm mỗi thư khác nhau để Gmail không tự thu gọn phần cuối thành "..."
+const hanLucStr = (minutes) =>
+  new Date(Date.now() + minutes * 60 * 1000).toLocaleTimeString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Ho_Chi_Minh",
+  });
+
+// nút bấm (link) trong email
+const nutLink = (href, chu) =>
+  `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:24px auto 18px;"><tr><td align="center" bgcolor="#d4507f" style="background-color:#d4507f;border-radius:999px;"><a href="${esc(href)}" target="_blank" style="display:inline-block;padding:14px 30px;font-family:'Palatino Linotype',Palatino,'Times New Roman','DejaVu Serif',serif;font-size:17px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:999px;">${esc(chu)}</a></td></tr></table>`;
+const linkTho = (href) =>
+  `<p style="margin:0 0 14px;font-size:12px;line-height:1.5;color:#8a7a74;word-break:break-all;">Nếu nút không bấm được, dán địa chỉ này vào trình duyệt:<br>${esc(href)}</p>`;
+
+// 1) OTP 6 số xác thực email khi ĐĂNG KÝ
+function otpEmailContent({ name, otp, minutes, baseUrl = "" }) {
+  const hien = `${otp.slice(0, 3)} ${otp.slice(3)}`; // 483 192
+  const han = hanLucStr(minutes);
+  const serif =
+    "'Palatino Linotype',Palatino,'Times New Roman','DejaVu Serif',serif";
+  return renderMail({
+    subject: "Mã xác thực đăng ký - Cái Quán Ăn",
+    name,
+    baseUrl,
+    minutes,
+    heading: "Mã xác thực của bạn",
+    lead: "mời bạn nhập mã bên dưới để xác thực email và tiếp tục đăng ký.",
+    khoi: `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:22px 0 16px;">
+    <tr><td align="center" bgcolor="#ffffff" style="padding:18px 8px;background-color:#ffffff;border:2px solid #efc6d4;border-radius:16px;">
+      <span style="font-family:${serif};font-size:46px;line-height:1;font-weight:bold;letter-spacing:10px;color:#3a2214;">${hien}</span>
+    </td></tr></table>`,
+    hanHtml: `Mã có hiệu lực trong <b>${minutes} phút</b> (đến ${han}).<br>Vui lòng không chia sẻ mã này cho bất kỳ ai.`,
+    textBody: `Mã xác thực của bạn: ${otp}\nMã có hiệu lực ${minutes} phút (đến ${han}). Tuyệt đối không chia sẻ mã này cho bất kỳ ai.`,
+  });
+}
+
+// 2) LINK đặt lại mật khẩu (quên mật khẩu): link chứa token ngẫu nhiên dùng 1 lần
+function resetLinkEmailContent({ name, link, minutes, baseUrl = "" }) {
+  const han = hanLucStr(minutes);
+  return renderMail({
+    subject: "Đặt lại mật khẩu - Cái Quán Ăn",
+    name,
+    baseUrl,
+    minutes,
+    heading: "Đặt lại mật khẩu",
+    lead: "bấm nút bên dưới để chọn mật khẩu mới cho tài khoản của bạn.",
+    khoi: nutLink(link, "Đặt lại mật khẩu") + linkTho(link),
+    hanHtml: `Link có hiệu lực trong <b>${minutes} phút</b> (đến ${han}) và chỉ dùng được 1 lần.<br>Vui lòng không chuyển tiếp email này cho bất kỳ ai.`,
+    textBody: `Bấm vào link để đặt lại mật khẩu: ${link}\nLink có hiệu lực ${minutes} phút (đến ${han}) và chỉ dùng được 1 lần. Không chuyển tiếp email này cho ai.`,
+  });
+}
+
+// 3) Ai đó đăng ký bằng email ĐÃ CÓ tài khoản: gửi thư này thay cho OTP (giao diện vẫn báo "đã gửi" như email mới,
+//    nên người ngoài không dò được email nào đã đăng ký; chủ tài khoản thì biết mà đăng nhập / quên mật khẩu)
+function existsEmailContent({ name, baseUrl = "" }) {
+  const login = `${baseUrl}/login`;
+  return renderMail({
+    subject: "Email này đã có tài khoản - Cái Quán Ăn",
+    name,
+    baseUrl,
+    heading: "Bạn đã có tài khoản",
+    lead: 'vừa có yêu cầu đăng ký tài khoản mới bằng email này, nhưng email này đã có tài khoản rồi. Hãy đăng nhập, hoặc dùng "Quên mật khẩu" nếu bạn quên mật khẩu.',
+    khoi: nutLink(login, "Đăng nhập"),
+    hanHtml: "",
+    textBody: `Vừa có yêu cầu đăng ký tài khoản mới bằng email này, nhưng email này đã có tài khoản rồi. Hãy đăng nhập tại ${login} hoặc dùng "Quên mật khẩu" nếu bạn quên mật khẩu.`,
+  });
+}
+
+module.exports = {
+  sendMail,
+  otpEmailContent,
+  resetLinkEmailContent,
+  existsEmailContent,
+};
