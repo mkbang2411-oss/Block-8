@@ -185,12 +185,9 @@
         <label class="dn-truong"><span>Họ và tên</span>
           <input type="text" name="hoTen" autocomplete="name" placeholder="Nguyễn Văn A" required>
           <small class="dn-loi" role="alert"></small></label>
-                <fieldset class="dn-vai" id="dk-vai">
-          <legend>Bạn đăng ký với vai trò</legend>
-          <label><input type="radio" name="role" value="customer" required><span><b>Khách hàng</b><small>Xem thực đơn và gọi món</small></span></label>
-          <label><input type="radio" name="role" value="chef" required><span><b>Đầu bếp</b><small>Quản lí món ăn, nguyên liệu</small></span></label>
-          <small class="dn-loi" id="loi-role" role="alert"></small>
-        </fieldset>
+        <label class="dn-truong"><span>Mã mời đầu bếp (không bắt buộc)</span>
+          <input type="text" name="inviteCode" autocomplete="off" spellcheck="false" maxlength="100" placeholder="Bỏ trống nếu bạn là khách hàng">
+          <small class="dn-loi" role="alert"></small></label>
         <label class="dn-truong"><span>Mật khẩu</span>
           <input type="password" name="matKhau" autocomplete="new-password" placeholder="Nhập mật khẩu" required aria-describedby="dk-luat-mk">
           <ul class="dn-dk" id="dk-luat-mk" aria-live="polite"></ul>
@@ -199,6 +196,7 @@
           <input type="password" name="matKhau2" autocomplete="new-password" placeholder="Nhập lại mật khẩu" required aria-describedby="dk-luat-mk2">
           <ul class="dn-dk" id="dk-luat-mk2" aria-live="polite"></ul>
           <small class="dn-loi" role="alert"></small></label>
+        <small class="dn-loi giua" id="loi-dk" role="alert"></small>
         <button class="dn-nut" type="submit"><span>Hoàn tất đăng ký</span></button>
       </form>
 

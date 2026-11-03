@@ -54,8 +54,8 @@ const User = sequelize.define(
     role: {
       type: DataTypes.STRING(20),
       allowNull: false,
-      defaultValue: "chef", // tài khoản có từ trước chưa có lựa chọn nên giữ là đầu bếp
-      validate: { isIn: [["chef", "customer"]] }, // vai chọn lúc đăng ký: đầu bếp | khách hàng
+      defaultValue: "customer", // role ít quyền nhất; chef chỉ được cấp bằng mã mời hoặc do admin cấp
+      validate: { isIn: [["chef", "customer"]] }, // vai của tài khoản: đầu bếp | khách hàng
     },
 
     // xác minh email: chỉ lưu SHA-256 của token (token gốc chỉ nằm trong email của người dùng)

@@ -538,12 +538,10 @@
   });
 
   // --- Bước 3: thông tin cá nhân (CAPTCHA đã xác nhận ở bước 1) ---
+  // Không còn ô chọn vai trò: server tự gán "customer"; chỉ có ô "Mã mời đầu bếp" (tùy chọn) để được làm đầu bếp.
   const f3 = $("#f-b3"),
-    loiRole = $("#loi-role");
+    loiDangKy = $("#loi-dk");
   xoaLoiKhiGo(f3);
-  $$('input[name="role"]', f3).forEach((r) =>
-    r.addEventListener("change", () => (loiRole.textContent = "")),
-  );
   const luat3 = ganCapMk(
     f3.matKhau,
     $("#dk-luat-mk"),
@@ -555,17 +553,13 @@
     const ten = f3.hoTen,
       mk = f3.matKhau,
       mk2 = f3.matKhau2;
-    const roleChon = f3.querySelector('input[name="role"]:checked');
-    loiRole.textContent = roleChon
-      ? ""
-      : "Vui lòng chọn vai trò (khách hàng hoặc đầu bếp).";
+    loiDangKy.textContent = "";
     const kq = [
       loiO(ten, ten.value.trim().length < 2 ? "Vui lòng nhập họ và tên." : ""),
       luat3.kiemMk(),
       luat3.kiemKhop(),
     ];
     if (kq.includes(false)) return [ten, mk, mk2][kq.indexOf(false)].focus();
-    if (!roleChon) return f3.querySelector('input[name="role"]').focus();
     const nut = $(".dn-nut", f3);
     cho(nut, true);
     try {
@@ -573,7 +567,7 @@
         email: emailDk,
         ticket: veDk,
         hoTen: ten.value.trim(),
-        role: roleChon.value,
+        inviteCode: f3.inviteCode.value.trim(), // không gửi role: server tự quyết định
         matKhau: mk.value,
         matKhau2: mk2.value,
       });
@@ -592,16 +586,17 @@
         datBuoc(1);
         return loiO(f1.email, err.message);
       }
-      if (err.field === "role") {
-        loiRole.textContent = err.message;
-        return;
-      }
-      const o = { hoTen: ten, matKhau: mk, matKhau2: mk2 }[err.field];
+      const o = {
+        hoTen: ten,
+        matKhau: mk,
+        matKhau2: mk2,
+        inviteCode: f3.inviteCode,
+      }[err.field];
       if (o) {
         loiO(o, err.message);
         o.focus();
       } else
-        loiRole.textContent =
+        loiDangKy.textContent =
           err.message || "Không đăng ký được, vui lòng thử lại.";
     }
   });

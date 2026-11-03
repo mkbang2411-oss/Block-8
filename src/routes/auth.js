@@ -8,7 +8,9 @@
 //   POST /register/otp          {email, recaptcha}   JSON -> bước 1: xác minh CAPTCHA TRƯỚC, rồi mới gửi OTP 6 số tới email.
 //                               Email đã có tài khoản vẫn trả y hệt email mới ({ok:true,cooldown}) -> không dò được email nào đã đăng ký
 //   POST /register/verify       {email, otp}         JSON -> bước 2: kiểm tra OTP, trả `ticket` dùng 1 lần
-//   POST /register              {email, ticket, hoTen, role, matKhau, matKhau2} JSON -> bước 3: tạo tài khoản
+//   POST /register              {email, ticket, hoTen, matKhau, matKhau2, inviteCode?} JSON -> bước 3: tạo tài khoản.
+//                               Server TỰ gán role ít quyền nhất (customer), BỎ QUA mọi `role` do client gửi.
+//                               Chỉ khi có `inviteCode` đúng (env CHEF_INVITE_CODE) mới được role chef; hoặc admin cấp bằng scripts/set-role.js
 //   POST /forgot-password       {email}              JSON -> gửi EMAIL CHỨA LINK /reset-password?token=... (luôn báo thành công)
 //   GET  /reset-password?token= trang nhập mật khẩu mới (token sai / hết hạn -> báo lỗi)
 //   POST /reset-password        FORM (token, matKhau, matKhau2) -> đổi mật khẩu, hủy token, đăng xuất mọi thiết bị, redirect 303 /login?reset=1
@@ -61,7 +63,8 @@ const RESEND_COOLDOWN_MS = 60 * 1000;
 const REGISTER_OTP_MINUTES = 5;
 const RESET_LINK_MINUTES = 30; // link đặt lại mật khẩu có hiệu lực 30 phút, dùng 1 lần
 const OTP_MAX_TRIES = 5;
-const ACCOUNT_ROLES = ["customer", "chef"]; // vai chọn lúc đăng ký: khách hàng | đầu bếp
+const DEFAULT_ACCOUNT_ROLE = "customer"; // role ít quyền nhất: mọi tài khoản mới đều bắt đầu từ đây
+const CHEF_ACCOUNT_ROLE = "chef"; // chỉ cấp qua mã mời (inviteCode) hoặc do admin cấp (scripts/set-role.js)
 const TICKET_MINUTES = 15; // từ lúc nhập đúng OTP đến lúc phải bấm "Hoàn tất đăng ký"
 const CAPTCHA_AFTER = 3; // đăng nhập sai từ 3 lần: bắt CAPTCHA
 const LOCK_AFTER = 10; // đăng nhập sai đủ 10 lần: khóa
@@ -383,7 +386,8 @@ router.post(
       .replace(/\s+/g, " ");
     const password = String(req.body.matKhau || "");
     const password2 = String(req.body.matKhau2 || "");
-    const accountRole = String(req.body.role || "");
+    // KHÔNG đọc req.body.role: role không bao giờ do client quyết định.
+    const inviteCode = String(req.body.inviteCode || "").trim();
 
     // 1) vé từ bước 2: chứng minh email này đã nhập đúng OTP
     const row = V.validateEmail(email)
@@ -408,13 +412,16 @@ router.post(
     // 2) kiểm tra dữ liệu phía server
     const eName = V.validateName(name);
     if (eName) return fail(res, 400, eName, "hoTen");
-    if (!ACCOUNT_ROLES.includes(accountRole))
-      return fail(
-        res,
-        400,
-        "Vui lòng chọn vai trò (khách hàng hoặc đầu bếp).",
-        "role",
-      );
+    // Mặc định customer. Chỉ khi nhập ĐÚNG mã mời của quán (CHEF_INVITE_CODE) mới thành chef.
+    // Nhập mã mà sai (hoặc server chưa cấu hình mã) -> báo lỗi chứ không âm thầm hạ xuống customer.
+    let accountRole = DEFAULT_ACCOUNT_ROLE;
+    if (inviteCode) {
+      const expected = process.env.CHEF_INVITE_CODE || "";
+      // so sánh băm SHA-256 của 2 chuỗi (độ dài bằng nhau) bằng timingSafeEqual -> không lộ độ dài / không timing attack
+      if (!expected || !safeEqual(sha256(inviteCode), sha256(expected)))
+        return fail(res, 400, "Mã mời không đúng.", "inviteCode");
+      accountRole = CHEF_ACCOUNT_ROLE;
+    }
     const ePass = V.validatePassword(password, { email, name });
     if (ePass) return fail(res, 400, ePass, "matKhau");
     if (password !== password2)

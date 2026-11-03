@@ -29,7 +29,7 @@ Các trang được render ở phía máy chủ (Server-Side Rendering – SSR) 
 
 Giao diện đăng nhập/đăng ký (`/login`, `/register`) gọi API thật của server bằng fetch JSON.
 
-- **Đăng ký 3 bước**: (1) nhập email + tick "không phải người máy" (CAPTCHA) -> server xác minh CAPTCHA rồi mới gửi **OTP 6 số** qua email; (2) nhập OTP; (3) họ tên, vai trò, mật khẩu. Tài khoản được tạo sẵn là đã xác minh email, không cần bấm link.
+- **Đăng ký 3 bước**: (1) nhập email + tick "không phải người máy" (CAPTCHA) -> server xác minh CAPTCHA rồi mới gửi **OTP 6 số** qua email; (2) nhập OTP; (3) họ tên, mật khẩu và (tùy chọn) mã mời đầu bếp. Tài khoản được tạo sẵn là đã xác minh email, không cần bấm link.
 - **OTP đăng ký**: CSPRNG, chỉ lưu hash trong bảng `register_otps`, hiệu lực 5 phút, sai 5 lần thì hủy, gửi lại sau 60 giây (mỗi lần gửi / gửi lại đều phải qua CAPTCHA). Nhập đúng OTP thì nhận "vé" dùng 1 lần (15 phút) cho bước 3.
 - **Đăng nhập**: form HTML thường, `POST /login` thành công thì server **redirect 303**. **Sai từ 3 lần thì bắt CAPTCHA** (reCAPTCHA kiểm tra TRƯỚC khi so mật khẩu), **sai đủ 10 lần thì khóa 5 phút**. Email không có tài khoản cũng bị đếm y hệt, thông báo lỗi không cho biết email có tồn tại hay không.
 - **Đăng ký bằng email đã có tài khoản**: server trả cùng phản hồi như email mới (không báo 409), chỉ gửi cho chủ email một thư "bạn đã có tài khoản"; nhập OTP sau đó sẽ báo "mã chưa đúng".
@@ -38,12 +38,13 @@ Giao diện đăng nhập/đăng ký (`/login`, `/register`) gọi API thật c�
 - **Phiên**: cookie `sid` (httpOnly, SameSite=Lax, Secure khi production) chứa token ngẫu nhiên 256 bit; bảng `sessions` chỉ lưu **SHA-256** của token, hạn 7 ngày. Đổi token mỗi lần đăng nhập. **Đăng xuất** (`POST /logout`) xóa phiên trong DB và cookie.
 - **Đăng xuất**: bấm vào chiếc thuyền ở góc sông (trang phố) -> hộp hỏi "Bạn có chắc muốn đăng xuất?" -> đồng ý thì `POST /logout`.
 - **Vé hành khách**: bấm cô gái áo dài ở đầu phố để mở vé (tên + ảnh đại diện tròn). Ảnh được kéo/zoom và cắt vuông ngay trên trình duyệt, gửi `POST /avatar`; server resize 512px + thumbnail 240px lưu vào thư mục `avatars/` của bucket `dish-images` (cột `users.avatarUrl`, `users.avatarPath` tự được thêm khi khởi động).
-- **Chọn vai**: sau khi đăng nhập, bấm vào nhà hàng ở trang phố để chọn **Khách hàng** hoặc **Đầu bếp** (`POST /chon-vai`). Khu `/admin/**` bắt buộc có phiên đăng nhập thật và đang ở vai Đầu bếp; chưa đăng nhập thì chuyển về `/login`.
+- **Chọn vai**: sau khi đăng nhập, bấm vào nhà hàng ở trang phố để chọn **Khách hàng** hoặc **Đầu bếp** (`POST /chon-vai`). Khu `/admin/**` bắt buộc có phiên đăng nhập thật, tài khoản có role `chef` và đang ở vai Đầu bếp; chưa đăng nhập thì chuyển về `/login`, tài khoản `customer` bị 403.
+- **Phân quyền tối thiểu (least privilege)**: server **tự gán role `customer`** cho mọi tài khoản mới và **bỏ qua** trường `role` client gửi lên. Role `chef` chỉ có được bằng 1 trong 2 cách: (a) nhập đúng **mã mời** `CHEF_INVITE_CODE` (ô "Mã mời đầu bếp" ở bước 3; sai mã thì báo lỗi, để trống env thì tắt tính năng), hoặc (b) **admin cấp** bằng lệnh `node scripts/set-role.js <email> chef` (thu hồi: `... customer`).
 - **Mật khẩu** lưu bằng **bcrypt (cost 12)**. Ràng buộc: 8-72 byte, có chữ thường + HOA + số, không khoảng trắng, không chứa tên email/họ tên.
 - **reCAPTCHA** (tùy chọn): đặt `RECAPTCHA_SITE_KEY` + `RECAPTCHA_SECRET_KEY` để bước 1 (trước khi server gửi OTP) dùng Google reCAPTCHA v2 thật. Để trống: dev dùng ô giả lập và server không kiểm tra; **production thiếu `RECAPTCHA_SECRET_KEY` thì server từ chối** (đăng ký không gửi được OTP, đăng nhập sai từ 3 lần không đăng nhập được nữa). Dùng ở: bước 1 đăng ký và đăng nhập sai từ 3 lần.
 - Chặn CSRF bằng kiểm tra `Origin/Referer` cùng nguồn cho mọi POST/PATCH/DELETE, kèm giới hạn số lần gọi theo IP.
 
-> Lưu ý: mọi tài khoản đăng ký xong đều chọn được vai Đầu bếp (có quyền CRUD). Nếu muốn giới hạn, hãy thêm mã mời hoặc danh sách email được phép.
+> Lưu ý khi nâng cấp từ bản cũ: các tài khoản đã đăng ký trước đây vẫn giữ nguyên role trong DB (bản cũ cho tự chọn `chef`). Hãy rà lại và thu hồi những tài khoản không đáng tin bằng `node scripts/set-role.js <email> customer`.
 
 ### Quản trị dữ liệu
 
@@ -171,7 +172,7 @@ Block-5-main/
 
 ## 7. Một số giới hạn của phiên bản hiện tại
 
-- Chưa có chức năng đổi mật khẩu khi đang đăng nhập và chưa phân biệt nhiều cấp quyền (mọi tài khoản đều chọn được vai Đầu bếp).
+- Chưa có chức năng đổi mật khẩu khi đang đăng nhập và mới có 2 cấp quyền (customer / chef); chưa có giao diện web để admin cấp quyền (đang cấp bằng `scripts/set-role.js`).
 - Hàng chờ / thao tác đặt món ở giao diện khách chỉ lưu tạm trên trình duyệt; chưa có bảng đơn hàng trong cơ sở dữ liệu.
 - Dữ liệu đầu bếp hiện chỉ gồm tên và chuyên môn.
 - Dữ liệu nguyên liệu không có số lượng định mức theo từng món; giao diện hiển thị tên và đơn vị tính.
