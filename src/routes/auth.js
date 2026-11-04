@@ -73,6 +73,9 @@ const RESEND_COOLDOWN_MS = 60 * 1000;
 const REGISTER_OTP_MINUTES = 5;
 const RESET_LINK_MINUTES = 30; // link đặt lại mật khẩu có hiệu lực 30 phút, dùng 1 lần
 const OTP_MAX_TRIES = 5;
+const OTP_LOCK_MINUTES = 15; // sai đủ OTP_MAX_TRIES lần: khóa xác thực email này 15 phút (xin mã mới KHÔNG mở khóa)
+const OTP_MAX_SENDS = 5; // tối đa 5 lần gửi mã / email ...
+const OTP_SEND_WINDOW_MS = 60 * 60 * 1000; // ... trong 1 giờ
 const DEFAULT_ACCOUNT_ROLE = "customer"; // role ít quyền nhất: mọi tài khoản mới đều bắt đầu từ đây
 const CHEF_ACCOUNT_ROLE = "chef"; // chỉ cấp qua mã mời (inviteCode) hoặc do admin cấp (scripts/set-role.js)
 const TICKET_MINUTES = 15; // từ lúc nhập đúng OTP đến lúc phải bấm "Hoàn tất đăng ký"
@@ -139,12 +142,13 @@ const pageData = () => ({
 });
 
 // ---------------------------------------------------------------- TRANG
-// locals của login.ejs: error | notice | email (điền lại) | needCaptcha (hiện CAPTCHA ở form đăng nhập) | tab | next | reset*
+// locals của login.ejs: error | notice | email (điền lại) | needCaptcha (hiện CAPTCHA ở form đăng nhập) | lockedSeconds (số giây còn bị khóa, 0 = không khóa) | tab | next | reset*
 const loginView = (extra = {}) => ({
   error: null,
   notice: null,
   email: "",
   needCaptcha: false,
+  lockedSeconds: 0,
   tab: "login",
   next: "",
   ...pageData(),
@@ -178,12 +182,18 @@ router.post(
     // đăng nhập sai: vẽ lại trang đăng nhập kèm thông báo, điền lại email, giữ `next`
     // Không JS (form thường): vẽ lại cả trang. Có JS (fetch gửi Accept: application/json): trả JSON để trang tự hiện lỗi tại chỗ.
     // Đăng nhập ĐÚNG thì cả hai đều nhận redirect 303.
-    const back = (status, error, needCaptcha = false) =>
+    // lockedSeconds > 0: đang bị khóa -> giao diện khóa ô mật khẩu + CAPTCHA + nút và đếm ngược (khỏi tốn token reCAPTCHA vô ích)
+    const back = (status, error, needCaptcha = false, lockedSeconds = 0) =>
       /application\/json/.test(req.get("accept") || "")
-        ? res.status(status).json({ ok: false, error, needCaptcha })
+        ? res
+            .status(status)
+            .json({ ok: false, error, needCaptcha, lockedSeconds })
         : res
             .status(status)
-            .render("login", loginView({ error, email, next, needCaptcha }));
+            .render(
+              "login",
+              loginView({ error, email, next, needCaptcha, lockedSeconds }),
+            );
 
     if (!email || !password || password.length > 200)
       return back(400, "Vui lòng nhập email và mật khẩu.");
@@ -205,13 +215,13 @@ router.post(
 
     // đang khóa: từ chối ngay (dù mật khẩu đúng hay sai)
     if (st.lockedUntil && st.lockedUntil > new Date()) {
-      const phut = Math.max(
-        1,
-        Math.ceil((st.lockedUntil - Date.now()) / 60000),
-      );
+      const giay = Math.max(1, Math.ceil((st.lockedUntil - Date.now()) / 1000));
+      const phut = Math.ceil(giay / 60);
       return back(
         429,
         `Bạn đã nhập sai quá nhiều lần. Vui lòng thử lại sau khoảng ${phut} phút.`,
+        false,
+        giay,
       );
     }
 
@@ -253,6 +263,8 @@ router.post(
         return back(
           429,
           "Bạn đã nhập sai 10 lần. Đăng nhập tạm khóa 5 phút, vui lòng thử lại sau.",
+          false,
+          LOCK_MS / 1000,
         );
       // cùng 1 thông báo cho "email không tồn tại" và "sai mật khẩu"
       return back(
@@ -292,6 +304,20 @@ router.post(
 );
 
 // ---------------------------------------------------------------- ĐĂNG KÝ: BƯỚC 1 (xác minh CAPTCHA rồi gửi OTP)
+// Giới hạn THEO EMAIL (lưu trong DB, bảng register_otps), ngoài giới hạn theo IP:
+//   - sai OTP đủ OTP_MAX_TRIES lần -> khóa OTP_LOCK_MINUTES phút; xin mã mới KHÔNG làm `attempts` về 0
+//   - tối đa OTP_MAX_SENDS lần gửi / email / OTP_SEND_WINDOW_MINUTES phút
+//   - vượt giới hạn trả 429 (+ Retry-After)
+// Email ĐÃ có tài khoản cũng có 1 dòng giữ chỗ (OTP ngẫu nhiên, không ai biết) -> cùng giới hạn, cùng phản hồi như email mới.
+const tooMany = (res, ms, msg) => {
+  res.setHeader("Retry-After", Math.max(1, Math.ceil(ms / 1000)));
+  return fail(
+    res,
+    429,
+    `${msg} Vui lòng thử lại sau ${Math.max(1, Math.ceil(ms / 60000))} phút.`,
+  );
+};
+
 router.post(
   "/register/otp",
   guestOnly,
@@ -314,12 +340,81 @@ router.post(
       );
     }
 
-    // Email mới và email ĐÃ CÓ tài khoản phải nhận CÙNG MỘT phản hồi ({ok:true, cooldown}), nếu không người ngoài dò được
-    // email nào đã đăng ký. Email đã có tài khoản: không tạo OTP, chỉ gửi thư "bạn đã có tài khoản" cho chủ email.
     const SEND_FAIL = "Không gửi được email xác thực, vui lòng thử lại sau.";
+    const now = new Date();
+    const nowMs = now.getTime();
+    const COOLDOWN = { cooldown: RESEND_COOLDOWN_MS / 1000 };
+
+    // 1) giới hạn theo email (khóa sai OTP, cooldown, tổng số lần gửi)
+    let old = await RegisterOtp.findOne({ where: { email } });
+    let resetAttempts = false;
+    let sendCount = 1;
+    let windowStart = now;
+    if (old) {
+      if (old.lockedUntil && old.lockedUntil.getTime() > nowMs)
+        return tooMany(
+          res,
+          old.lockedUntil.getTime() - nowMs,
+          "Bạn đã nhập sai mã quá nhiều lần.",
+        );
+      // hết thời gian khóa -> mới được xóa số lần sai (chỉ đường duy nhất để attempts về 0 là chờ hết khóa)
+      resetAttempts = !!old.lockedUntil;
+
+      // đang trong thời gian chờ: không gửi thêm nhưng vẫn báo như bình thường
+      if (nowMs - old.sentAt.getTime() < RESEND_COOLDOWN_MS)
+        return ok(res, COOLDOWN);
+
+      const ws = (old.sendWindowStart || old.sentAt).getTime();
+      if (nowMs - ws < OTP_SEND_WINDOW_MS) {
+        if (old.sendCount >= OTP_MAX_SENDS)
+          return tooMany(
+            res,
+            ws + OTP_SEND_WINDOW_MS - nowMs,
+            "Bạn đã yêu cầu mã quá nhiều lần.",
+          );
+        sendCount = old.sendCount + 1;
+        windowStart = new Date(ws);
+      }
+    }
+
+    // 2) Email đã có tài khoản: không có OTP thật, chỉ gửi thư "bạn đã có tài khoản". Email mới: tạo OTP thật.
     const existing = await User.findOne({ where: { email } });
-    if (existing && existing.emailVerifiedAt) {
+    const hasAccount = !!(existing && existing.emailVerifiedAt);
+    const otp = hasAccount ? null : newOtp();
+    const fields = {
+      otpHash: otp ? otpHashReg(email, otp) : sha256(randomToken()), // chỉ lưu hash, không lưu OTP
+      expiresAt: new Date(nowMs + REGISTER_OTP_MINUTES * 60 * 1000),
+      sentAt: now,
+      ticketHash: null,
+      ticketExpires: null,
+      sendCount,
+      sendWindowStart: windowStart,
+    };
+    // `attempts` KHÔNG nằm trong `fields`: gửi lại mã giữ nguyên số lần đã sai.
+    if (resetAttempts) {
+      fields.attempts = 0;
+      fields.lockedUntil = null;
+    }
+
+    // 3) ghi nguyên tử: 2 request song song chỉ 1 request giành được lượt gửi
+    if (old) {
+      const [claimed] = await RegisterOtp.update(fields, {
+        where: { id: old.id, sentAt: old.sentAt },
+      });
+      if (!claimed) return ok(res, COOLDOWN);
+    } else {
       try {
+        await RegisterOtp.create({ email, ...fields });
+      } catch (err) {
+        if (err.name === "SequelizeUniqueConstraintError")
+          return ok(res, COOLDOWN);
+        throw err;
+      }
+    }
+
+    // 4) gửi thư. Email mới và email đã có tài khoản nhận CÙNG phản hồi ({ok:true, cooldown}).
+    try {
+      if (hasAccount)
         await sendMail({
           to: email,
           ...existsEmailContent({
@@ -327,45 +422,26 @@ router.post(
             baseUrl: baseUrl(req),
           }),
         });
-      } catch (err) {
-        console.error("Gửi thư 'đã có tài khoản' thất bại:", err.message);
-        return fail(res, 502, SEND_FAIL, "email");
-      }
-      return ok(res, { cooldown: RESEND_COOLDOWN_MS / 1000 });
-    }
-
-    const old = await RegisterOtp.findOne({ where: { email } });
-    if (old && Date.now() - old.sentAt.getTime() < RESEND_COOLDOWN_MS) {
-      // đang trong thời gian chờ: không gửi thêm nhưng vẫn báo như bình thường (giống cách email đã có tài khoản được xử lý)
-      return ok(res, { cooldown: RESEND_COOLDOWN_MS / 1000 });
-    }
-
-    const otp = newOtp();
-    await RegisterOtp.destroy({ where: { email } }); // mỗi email chỉ có 1 OTP còn hiệu lực
-    const keptAttempts = old ? old.attempts : 0;
-    const row = await RegisterOtp.create({
-      email,
-      otpHash: otpHashReg(email, otp), // chỉ lưu hash, không lưu OTP
-      expiresAt: new Date(Date.now() + REGISTER_OTP_MINUTES * 60 * 1000),
-      attempts: keptAttempts,
-      sentAt: new Date(),
-    });
-    try {
-      await sendMail({
-        to: email,
-        ...otpEmailContent({
-          name: "",
-          otp,
-          minutes: REGISTER_OTP_MINUTES,
-          baseUrl: baseUrl(req),
-        }),
-      });
+      else
+        await sendMail({
+          to: email,
+          ...otpEmailContent({
+            name: "",
+            otp,
+            minutes: REGISTER_OTP_MINUTES,
+            baseUrl: baseUrl(req),
+          }),
+        });
     } catch (err) {
-      console.error("Gửi OTP đăng ký thất bại:", err.message);
-      await row.destroy();
+      console.error("Gửi email đăng ký thất bại:", err.message);
+      // KHÔNG xóa dòng (xóa sẽ làm attempts/sendCount về 0): chỉ vô hiệu OTP vừa tạo, cho phép gửi lại ngay
+      await RegisterOtp.update(
+        { otpHash: sha256(randomToken()), expiresAt: now, sentAt: new Date(0) },
+        { where: { email } },
+      );
       return fail(res, 502, SEND_FAIL, "email");
     }
-    ok(res, { cooldown: RESEND_COOLDOWN_MS / 1000 });
+    ok(res, COOLDOWN);
   }),
 );
 
@@ -382,25 +458,63 @@ router.post(
     if (!V.OTP_RE.test(otp)) return fail(res, 400, "Vui lòng nhập đủ 6 số.");
 
     const BAD = "Mã chưa đúng hoặc đã hết hạn. Bạn có thể yêu cầu mã mới.";
+    const LOCKED = "Bạn đã nhập sai mã quá nhiều lần.";
+    const now = new Date();
+    // KHÔNG xóa dòng khi hết hạn / sai: xóa sẽ làm `attempts` và `sendCount` về 0 (cleanup.js sẽ dọn sau)
     const row = await RegisterOtp.findOne({ where: { email } });
-    if (!row || row.expiresAt < new Date() || row.ticketHash) {
-      if (row && !row.ticketHash) await row.destroy();
+    if (!row) return fail(res, 400, BAD);
+    if (row.lockedUntil && row.lockedUntil > now)
+      return tooMany(res, row.lockedUntil - now, LOCKED);
+    if (row.ticketHash || row.expiresAt < now || row.attempts >= OTP_MAX_TRIES)
       return fail(res, 400, BAD);
-    }
-    if (!safeEqual(row.otpHash, otpHashReg(email, otp))) {
-      // quá 5 lần sai thì hủy OTP (chặn dò 1 triệu khả năng)
-      if (row.attempts + 1 >= OTP_MAX_TRIES) await row.destroy();
-      else await row.update({ attempts: row.attempts + 1 });
+
+    // Giành 1 lượt thử bằng MỘT câu UPDATE nguyên tử (attempts = attempts + 1 ... WHERE attempts < 5):
+    // 100 request song song cũng chỉ có tối đa 5 request được so OTP, không đọc-rồi-ghi nên không thử vượt được.
+    const qi = sequelize.getQueryInterface();
+    const col = qi.quoteIdentifier("attempts");
+    const [claimed] = await RegisterOtp.update(
+      { attempts: sequelize.literal(`${col} + 1`) },
+      {
+        where: {
+          id: row.id,
+          otpHash: row.otpHash,
+          ticketHash: null,
+          attempts: { [Op.lt]: OTP_MAX_TRIES },
+        },
+      },
+    );
+    if (!claimed) {
+      await row.reload();
+      if (row.lockedUntil && row.lockedUntil > now)
+        return tooMany(res, row.lockedUntil - now, LOCKED);
       return fail(res, 400, BAD);
     }
 
-    // OTP đúng: hủy OTP (dùng 1 lần), cấp vé cho bước 3
+    if (!safeEqual(row.otpHash, otpHashReg(email, otp))) {
+      await row.reload();
+      if (row.attempts >= OTP_MAX_TRIES) {
+        // đủ 5 lần sai: khóa (giữ nguyên dòng, attempts = 5)
+        const until = new Date(Date.now() + OTP_LOCK_MINUTES * 60 * 1000);
+        await RegisterOtp.update(
+          { lockedUntil: until },
+          { where: { id: row.id, lockedUntil: null } },
+        );
+        return tooMany(res, OTP_LOCK_MINUTES * 60 * 1000, LOCKED);
+      }
+      return fail(res, 400, BAD);
+    }
+
+    // OTP đúng: vô hiệu OTP (dùng 1 lần), cấp vé cho bước 3. Điều kiện ticketHash=null: chỉ 1 request song song nhận được vé.
     const ticket = randomToken();
-    await row.update({
-      otpHash: sha256(randomToken()),
-      ticketHash: sha256(ticket),
-      ticketExpires: new Date(Date.now() + TICKET_MINUTES * 60 * 1000),
-    });
+    const [issued] = await RegisterOtp.update(
+      {
+        otpHash: sha256(randomToken()),
+        ticketHash: sha256(ticket),
+        ticketExpires: new Date(Date.now() + TICKET_MINUTES * 60 * 1000),
+      },
+      { where: { id: row.id, ticketHash: null } },
+    );
+    if (!issued) return fail(res, 400, BAD);
     ok(res, { ticket });
   }),
 );

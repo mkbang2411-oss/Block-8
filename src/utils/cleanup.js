@@ -19,11 +19,21 @@ async function cleanup() {
         ],
       },
     });
-    // OTP đăng ký: còn giữ khi vé (ticket) của bước 3 chưa hết hạn
+    // OTP đăng ký: chỉ xóa khi đã hết hạn, vé (ticket) bước 3 đã hết, KHÔNG còn bị khóa và cửa sổ đếm số lần gửi (1 giờ) đã qua.
+    // Xóa sớm hơn sẽ làm attempts / sendCount về 0 -> kẻ tấn công xin mã mới để được thử lại từ đầu.
     await RegisterOtp.destroy({
       where: {
         expiresAt: { [Op.lt]: now },
-        [Op.or]: [{ ticketExpires: null }, { ticketExpires: { [Op.lt]: now } }],
+        [Op.and]: [
+          { [Op.or]: [{ ticketExpires: null }, { ticketExpires: { [Op.lt]: now } }] },
+          { [Op.or]: [{ lockedUntil: null }, { lockedUntil: { [Op.lt]: now } }] },
+          {
+            [Op.or]: [
+              { sendWindowStart: null },
+              { sendWindowStart: { [Op.lt]: new Date(Date.now() - 60 * 60 * 1000) } },
+            ],
+          },
+        ],
       },
     });
     await User.destroy({

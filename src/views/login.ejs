@@ -52,7 +52,7 @@
       <h1 class="dn-tieude">Chào mừng trở lại</h1>
       <p class="dn-phu">Đăng nhập để tiếp tục sử dụng hệ thống.</p>
       <div class="bao-loi" id="dn-loi-chung" role="alert"<%- (locals.error && tab === 'login') ? '' : ' hidden' %>><%= (tab === 'login' && locals.error) ? error : '' %></div>
-      <form id="f-dn" method="post" action="/login" novalidate>
+      <form id="f-dn" method="post" action="/login" novalidate data-khoa="<%= locals.lockedSeconds || 0 %>">
         <input type="hidden" name="_csrf" value="<%= locals.csrfToken || '' %>">
         <input type="hidden" name="next" value="<%= locals.next || '' %>">
         <label class="dn-truong"><span>Địa chỉ email</span>

@@ -1,5 +1,5 @@
 const app = require("./app");
-const { sequelize, User, Session, PasswordReset } = require("./models");
+const { sequelize, User, Session, PasswordReset, RegisterOtp } = require("./models");
 const { addMissingColumns, renameColumnIfNeeded } = require("./utils/migrate");
 const { startCleanup } = require("./utils/cleanup");
 
@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 3000;
       "tokenHash",
     ).catch(() => {}); // bảng chưa có (DB mới) -> bỏ qua
     await sequelize.sync();
-    await addMissingColumns(sequelize, [User, Session, PasswordReset]); // bảng có từ trước vẫn nhận cột mới (users.windowStart, password_resets.usedAt)
+    await addMissingColumns(sequelize, [User, Session, PasswordReset, RegisterOtp]); // bảng có từ trước vẫn nhận cột mới (users.windowStart, password_resets.usedAt)
     startCleanup();
     app.listen(PORT, () =>
       console.log(`Server chạy tại http://localhost:${PORT}`),

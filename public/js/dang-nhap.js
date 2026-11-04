@@ -243,6 +243,48 @@
       }
     });
   }
+  // ---- KHÓA ĐĂNG NHẬP: server báo còn X giây -> chặn ô mật khẩu, CAPTCHA, nút gửi và đếm ngược; hết giờ tự mở lại ----
+  // (server đã từ chối trước khi kiểm tra CAPTCHA/mật khẩu, nhưng chặn luôn ở giao diện để người dùng khỏi tick CAPTCHA vô ích)
+  const nutDn = $(".dn-nut", fDn),
+    chuNutDn = nutDn.firstElementChild,
+    nutMat = $(".dn-mat");
+  let hetKhoa = 0,
+    demKhoa = null;
+  const mmss = (s) =>
+    `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  function moKhoa() {
+    clearInterval(demKhoa);
+    demKhoa = null;
+    hetKhoa = 0;
+    fDn.password.disabled = false;
+    nutMat.disabled = false;
+    nutDn.disabled = false;
+    nutDn.removeAttribute("aria-disabled");
+    chuNutDn.textContent = "Đăng nhập";
+    loiChung.hidden = true;
+  }
+  function khoaForm(giay) {
+    clearInterval(demKhoa);
+    hetKhoa = Date.now() + giay * 1000;
+    fDn.password.value = "";
+    fDn.password.disabled = true;
+    nutMat.disabled = true;
+    khoiCapDn.hidden = true; // sau khi hết khóa bộ đếm sai về 0 nên không cần CAPTCHA nữa
+    nutDn.disabled = true;
+    nutDn.setAttribute("aria-disabled", "true");
+    const chay = () => {
+      const con = Math.ceil((hetKhoa - Date.now()) / 1000);
+      if (con <= 0) {
+        moKhoa();
+        return fDn.password.focus();
+      }
+      chuNutDn.textContent = `Thử lại sau ${mmss(con)}`;
+    };
+    chay();
+    demKhoa = setInterval(chay, 1000);
+  }
+  // đổi email = tài khoản khác, khóa của email cũ không áp dụng: mở lại, server sẽ quyết định ở lần gửi kế
+  fDn.email.addEventListener("input", () => hetKhoa && moKhoa());
   const capDnHien = () => !khoiCapDn.hidden; // chỉ bắt tick khi server đã đòi (sai >= 3 lần)
   const tokenCapDn = () =>
     !capDnHien()
@@ -277,6 +319,7 @@
         ? ""
         : "Vui lòng xác nhận bạn không phải người máy.";
     e.preventDefault();
+    if (hetKhoa) return; // đang khóa: không gửi gì lên server
     if (!ok1 || !ok2 || !okCap) return (ok1 ? mk : em).focus();
     const nut = $(".dn-nut", fDn);
     cho(nut, true);
@@ -314,8 +357,11 @@
     if (d.needCaptcha) khoiCapDn.hidden = false;
     if (capDnHien()) datLaiCapDn(); // token CAPTCHA đã bị tiêu, lần sau phải tick lại
     mk.value = "";
+    if (d.lockedSeconds > 0) return khoaForm(d.lockedSeconds);
     mk.focus();
   });
+  // trang vừa được server vẽ lại trong lúc đang khóa (form thường, không JS fetch): khóa ngay từ đầu
+  if (+fDn.dataset.khoa > 0) khoaForm(+fDn.dataset.khoa);
 
   // ================= ĐĂNG KÝ 3 BƯỚC =================
   const tieuDe = $("#dk-tieude"),
