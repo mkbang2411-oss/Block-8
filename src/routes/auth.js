@@ -53,7 +53,7 @@ const {
   passwordChangedEmailContent,
 } = require("../utils/mailer");
 const { verifyRecaptcha } = require("../utils/recaptcha");
-const { rateLimit } = require("../utils/rateLimit");
+const { rateLimit, keyLimiter } = require("../utils/rateLimit");
 const { asyncHandler } = require("../utils/format");
 const V = require("../utils/validators");
 const { normEmail } = V;
@@ -117,6 +117,8 @@ const limitVerify = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
 const limitRegister = rateLimit({ windowMs: HOUR, max: 10 });
 const limitForgot = rateLimit({ windowMs: HOUR, max: 10 });
 const limitReset = rateLimit({ windowMs: 15 * 60 * 1000, max: 20 });
+// quên mật khẩu: tối đa 5 yêu cầu / email / giờ (ngoài giới hạn theo IP), áp dụng y hệt cho email có và không có tài khoản
+const limitForgotEmail = keyLimiter({ windowMs: HOUR, max: 5 });
 
 const baseUrl = (req) =>
   process.env.APP_URL
@@ -581,25 +583,42 @@ router.post(
     const user = await User.findOne({ where: { email } });
     if (user && user.emailVerifiedAt)
       return fail(res, 409, "Email này đã có tài khoản.", "phien");
-    if (user)
-      await user.update({
-        name,
-        role: accountRole,
-        passwordHash,
-        emailVerifiedAt: new Date(),
-        failedLogins: 0,
-        windowStart: null,
-        lockedUntil: null,
-      });
-    else
-      await User.create({
-        name,
-        email,
-        role: accountRole,
-        passwordHash,
-        emailVerifiedAt: new Date(),
-      });
-    await row.destroy(); // vé dùng 1 lần
+    // CHIẾM vé bằng 1 câu DELETE có điều kiện (vé dùng 1 lần): 2 request song song cùng vé thì chỉ 1 request chiếm được
+    const claimed = await RegisterOtp.destroy({
+      where: { id: row.id, ticketHash: row.ticketHash },
+    });
+    if (!claimed)
+      return fail(
+        res,
+        400,
+        "Phiên xác thực email đã hết hạn, vui lòng xác thực lại email.",
+        "phien",
+      );
+    try {
+      if (user)
+        await user.update({
+          name,
+          role: accountRole,
+          passwordHash,
+          emailVerifiedAt: new Date(),
+          failedLogins: 0,
+          windowStart: null,
+          lockedUntil: null,
+        });
+      else
+        await User.create({
+          name,
+          email,
+          role: accountRole,
+          passwordHash,
+          emailVerifiedAt: new Date(),
+        });
+    } catch (err) {
+      // email vừa được tạo bởi request khác ngay trước đó (unique) -> 409 thay vì 500
+      if (err.name === "SequelizeUniqueConstraintError")
+        return fail(res, 409, "Email này đã có tài khoản.", "phien");
+      throw err;
+    }
     ok(res);
   }),
 );
@@ -647,6 +666,13 @@ router.post(
     const email = normEmail(req.body.email);
     const eEmail = V.validateEmail(email);
     if (eEmail) return fail(res, 400, eEmail, "email");
+    const cho = limitForgotEmail(email);
+    if (cho)
+      return tooMany(
+        res,
+        cho,
+        "Bạn đã yêu cầu đặt lại mật khẩu quá nhiều lần.",
+      );
     // không await: trả lời ngay, việc còn lại làm nền (fire-and-forget)
     guiLinkDatLai(email, baseUrl(req)).catch((err) =>
       console.error("Gửi link đặt lại mật khẩu thất bại:", err.message),

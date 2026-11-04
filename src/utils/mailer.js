@@ -1,7 +1,7 @@
 // Gửi email. Ưu tiên theo biến môi trường:
 //   1) RESEND_API_KEY  -> gọi HTTPS API của Resend (dùng được cả khi host chặn cổng SMTP)
 //   2) SMTP_HOST...    -> nodemailer qua SMTP (Gmail App Password, Brevo, Mailtrap...)
-//   3) không cấu hình  -> chỉ in link ra console (chỉ khi NODE_ENV != production)
+//   3) không cấu hình  -> không gửi; chỉ khi NODE_ENV != production VÀ DEV_PRINT_MAIL=1 mới in nội dung thư (OTP/link) ra console
 const nodemailer = require("nodemailer");
 const { isProd } = require("./security");
 
@@ -45,9 +45,15 @@ async function sendMail({ to, subject, html, text }) {
   }
   if (isProd)
     throw new Error("Chưa cấu hình gửi email (RESEND_API_KEY hoặc SMTP_HOST)");
-  console.log(
-    `\n[DEV - chưa cấu hình email] Gửi tới ${to}\n${subject}\n${text}\n`,
-  );
+  // Mặc định KHÔNG ghi nội dung thư (có OTP / link đặt lại) vào log. Dev muốn xem mã thì chủ động đặt DEV_PRINT_MAIL=1 (không có tác dụng ở production).
+  if (process.env.DEV_PRINT_MAIL === "1")
+    console.log(
+      `\n[DEV - DEV_PRINT_MAIL=1] Gửi tới ${to}\n${subject}\n${text}\n`,
+    );
+  else
+    console.log(
+      `[DEV] Chưa cấu hình email: thư "${subject}" tới ${to} KHÔNG được gửi. Đặt DEV_PRINT_MAIL=1 trong .env để in nội dung thư ra console khi dev.`,
+    );
 }
 
 const esc = (s) =>
