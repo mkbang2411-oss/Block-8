@@ -74,6 +74,8 @@ const User = sequelize.define(
       defaultValue: 0,
       validate: { min: 0, max: 100 },
     },
+    // thời điểm lần sai ĐẦU TIÊN của cửa sổ đếm hiện tại (cửa sổ 15 phút); quá cửa sổ thì bộ đếm failedLogins coi như về 0
+    windowStart: { type: DataTypes.DATE },
     lockedUntil: { type: DataTypes.DATE },
     lastLoginAt: { type: DataTypes.DATE },
 

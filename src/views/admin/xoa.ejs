@@ -14,6 +14,7 @@
       <p>Bạn có chắc chắn muốn xóa <%= r.singular %> <b><%= r.label(record) %></b> không?</p>
       <p class="phu-chu-nho">Hành động này không thể hoàn tác.</p>
       <form method="post" action="/admin/<%= r.key %>/<%= record.id %>?_method=DELETE" class="nut-hang">
+        <input type="hidden" name="_csrf" value="<%= locals.csrfToken || '' %>">
         <a class="nut nut-phu" href="/admin/<%= r.key %>?sel=<%= record.id %>">Không xóa</a>
         <button class="nut">Xóa luôn</button>
       </form>

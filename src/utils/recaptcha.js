@@ -3,9 +3,25 @@
 //   RECAPTCHA_SITE_KEY   -> view hiện widget thật (thay ô giả lập)
 //   RECAPTCHA_SECRET_KEY -> server gọi Google kiểm tra token.
 //     Để trống: dev (NODE_ENV != production) bỏ qua kiểm tra; PRODUCTION thì TỪ CHỐI (fail-closed), vì ô giả lập không chặn được bot.
+//   RECAPTCHA_HOSTNAMES  -> (tùy chọn) thêm các tên miền khác được chấp nhận, cách nhau dấu phẩy (vd. tên miền riêng + *.onrender.com)
+// Ngoài `success`, server còn kiểm tra `hostname` Google trả về: token do widget chạy trên trang KHÁC (site khác dùng chung site key,
+// hoặc token bot lấy ở nơi khác) có hostname khác -> bị từ chối.
 const { isProd } = require("./security");
 
-async function verifyRecaptcha(token, ip) {
+// tên miền hợp lệ: hostname của APP_URL (nếu đặt) hoặc `fallbackHost` (hostname của request), cộng RECAPTCHA_HOSTNAMES
+function allowedHostnames(fallbackHost) {
+  const set = new Set();
+  try {
+    if (process.env.APP_URL)
+      set.add(new URL(process.env.APP_URL).hostname.toLowerCase());
+  } catch (e) {}
+  if (!set.size && fallbackHost) set.add(String(fallbackHost).toLowerCase());
+  for (const h of String(process.env.RECAPTCHA_HOSTNAMES || "").split(","))
+    if (h.trim()) set.add(h.trim().toLowerCase());
+  return set;
+}
+
+async function verifyRecaptcha(token, ip, requestHost) {
   const secret = process.env.RECAPTCHA_SECRET_KEY;
   if (!secret) {
     if (isProd)
@@ -26,7 +42,17 @@ async function verifyRecaptcha(token, ip) {
       }),
     });
     const j = await r.json();
-    return j.success === true;
+    if (j.success !== true) return false;
+    const host = String(j.hostname || "").toLowerCase();
+    // khóa thử của Google (chỉ dùng khi dev) luôn trả hostname "testkey.google.com"
+    if (!isProd && host === "testkey.google.com") return true;
+    if (!host || !allowedHostnames(requestHost).has(host)) {
+      console.error(
+        `reCAPTCHA: hostname "${host}" không khớp (mong đợi: ${[...allowedHostnames(requestHost)].join(", ") || "không xác định"}).`,
+      );
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error("Gọi reCAPTCHA lỗi:", err.message);
     return false;

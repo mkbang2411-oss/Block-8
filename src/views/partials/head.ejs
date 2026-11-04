@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="csrf-token" content="<%= locals.csrfToken || '' %>">
 <title><%= title %></title>
 <meta name="description" content="Cái Quán Ăn - quán ăn Hội An: xem thực đơn, chọn món trên bàn tròn và gọi món.">
 <%# mở sẵn kết nối tới Supabase Storage (nơi chứa ảnh món) để ảnh LCP không phải chờ bắt tay DNS/TLS %>

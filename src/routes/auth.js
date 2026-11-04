@@ -4,16 +4,18 @@
 //   POST /login                 FORM thường (email, password, next?, g-recaptcha-response? khi đã sai >= 3 lần)
 //                               -> đúng: tạo session, đặt cookie `sid`, redirect 303 tới `next` hoặc "/"
 //                               -> sai: render lại trang đăng nhập kèm thông báo (401/400/429), KHÔNG trả JSON
-//                               Sai từ 3 lần: bắt CAPTCHA. Sai đủ 10 lần: khóa 5 phút.
+//                               Sai từ 3 lần TRONG 15 PHÚT (tính từ lần sai đầu tiên, cột windowStart): bắt CAPTCHA. Sai đủ 10 lần: khóa 5 phút.
+//                               Quá 15 phút kể từ lần sai đầu thì bộ đếm về 0 (sai 3 lần cách nhau nhiều ngày KHÔNG bị đòi CAPTCHA).
 //   POST /register/otp          {email, recaptcha}   JSON -> bước 1: xác minh CAPTCHA TRƯỚC, rồi mới gửi OTP 6 số tới email.
 //                               Email đã có tài khoản vẫn trả y hệt email mới ({ok:true,cooldown}) -> không dò được email nào đã đăng ký
 //   POST /register/verify       {email, otp}         JSON -> bước 2: kiểm tra OTP, trả `ticket` dùng 1 lần
 //   POST /register              {email, ticket, hoTen, matKhau, matKhau2, inviteCode?} JSON -> bước 3: tạo tài khoản.
 //                               Server TỰ gán role ít quyền nhất (customer), BỎ QUA mọi `role` do client gửi.
 //                               Chỉ khi có `inviteCode` đúng (env CHEF_INVITE_CODE) mới được role chef; hoặc admin cấp bằng scripts/set-role.js
-//   POST /forgot-password       {email}              JSON -> gửi EMAIL CHỨA LINK /reset-password?token=... (luôn báo thành công)
-//   GET  /reset-password?token= trang nhập mật khẩu mới (token sai / hết hạn -> báo lỗi)
-//   POST /reset-password        FORM (token, matKhau, matKhau2) -> đổi mật khẩu, hủy token, đăng xuất mọi thiết bị, redirect 303 /login?reset=1
+//   POST /forgot-password       {email}              JSON -> gửi EMAIL CHỨA LINK /reset-password?token=... (luôn báo thành công NGAY; việc tra DB + gửi mail chạy nền
+//                               nên thời gian phản hồi như nhau dù email có tài khoản hay không)
+//   GET  /reset-password?token= trang nhập mật khẩu mới (token sai / hết hạn / đã dùng -> báo lỗi). Chỉ ĐỌC DB, không ghi/xóa gì.
+//   POST /reset-password        FORM (token, matKhau, matKhau2) -> đổi mật khẩu, đánh dấu token đã dùng (usedAt), đăng xuất mọi thiết bị, gửi email thông báo "mật khẩu đã thay đổi", redirect 303 /login?reset=1
 //   POST /chon-vai              form role=user|admin -> chọn vai ở trang phố (cần đã đăng nhập)
 //   POST /avatar                multipart image      -> đổi ảnh đại diện (vé hành khách ở trang phố)
 //   POST /logout                xóa session trong DB + xóa cookie, redirect 303 /login
@@ -21,7 +23,14 @@
 const crypto = require("crypto");
 const express = require("express");
 const bcrypt = require("bcryptjs");
-const { User, Session, PasswordReset, RegisterOtp } = require("../models");
+const { Op } = require("sequelize");
+const {
+  sequelize,
+  User,
+  Session,
+  PasswordReset,
+  RegisterOtp,
+} = require("../models");
 const {
   ROLES,
   canUseRole,
@@ -41,6 +50,7 @@ const {
   otpEmailContent,
   resetLinkEmailContent,
   existsEmailContent,
+  passwordChangedEmailContent,
 } = require("../utils/mailer");
 const { verifyRecaptcha } = require("../utils/recaptcha");
 const { rateLimit } = require("../utils/rateLimit");
@@ -66,7 +76,8 @@ const OTP_MAX_TRIES = 5;
 const DEFAULT_ACCOUNT_ROLE = "customer"; // role ít quyền nhất: mọi tài khoản mới đều bắt đầu từ đây
 const CHEF_ACCOUNT_ROLE = "chef"; // chỉ cấp qua mã mời (inviteCode) hoặc do admin cấp (scripts/set-role.js)
 const TICKET_MINUTES = 15; // từ lúc nhập đúng OTP đến lúc phải bấm "Hoàn tất đăng ký"
-const CAPTCHA_AFTER = 3; // đăng nhập sai từ 3 lần: bắt CAPTCHA
+const FAIL_WINDOW_MS = 15 * 60 * 1000; // cửa sổ đếm đăng nhập sai: 15 phút kể từ lần sai ĐẦU TIÊN; hết cửa sổ thì bộ đếm về 0
+const CAPTCHA_AFTER = 3; // đăng nhập sai từ 3 lần trong cửa sổ: bắt CAPTCHA
 const LOCK_AFTER = 10; // đăng nhập sai đủ 10 lần: khóa
 const LOCK_MS = 5 * 60 * 1000; // ... trong 5 phút
 const TOKEN_RE = /^[a-f0-9]{64}$/;
@@ -75,7 +86,7 @@ const DUMMY_HASH = bcrypt.hashSync("khong-ton-tai", BCRYPT_COST);
 
 // Email KHÔNG có tài khoản cũng bị đếm lần sai (trong RAM) để hành vi y hệt email có tài khoản (cùng lúc đòi CAPTCHA, cùng lúc khóa)
 // -> người ngoài không dò được email nào đã đăng ký qua việc "có đòi CAPTCHA hay không".
-const ghostFails = new Map(); // email -> { fails, lockedUntil, at }
+const ghostFails = new Map(); // email -> { fails, windowStart, lockedUntil, at }
 setInterval(
   () => {
     const now = Date.now();
@@ -88,6 +99,13 @@ setInterval(
   },
   15 * 60 * 1000,
 ).unref();
+
+// số lần sai CÒN TÍNH: nếu lần sai đầu của cửa sổ đã quá 15 phút (hoặc chưa có mốc) thì coi như 0
+const activeFails = (st) =>
+  st.windowStart &&
+  Date.now() - new Date(st.windowStart).getTime() < FAIL_WINDOW_MS
+    ? st.fails
+    : 0;
 
 const HOUR = 60 * 60 * 1000;
 const limitLogin = rateLimit({ windowMs: 15 * 60 * 1000, max: 30 });
@@ -171,9 +189,19 @@ router.post(
       return back(400, "Vui lòng nhập email và mật khẩu.");
 
     const user = await User.findOne({ where: { email } });
-    const st = user
-      ? { fails: user.failedLogins, lockedUntil: user.lockedUntil }
-      : ghostFails.get(email) || { fails: 0, lockedUntil: null };
+    const raw = user
+      ? {
+          fails: user.failedLogins,
+          windowStart: user.windowStart,
+          lockedUntil: user.lockedUntil,
+        }
+      : ghostFails.get(email) || {
+          fails: 0,
+          windowStart: null,
+          lockedUntil: null,
+        };
+    // bộ đếm chỉ có giá trị trong cửa sổ 15 phút; quá cửa sổ -> bắt đầu đếm lại từ 0
+    const st = { ...raw, fails: activeFails(raw) };
 
     // đang khóa: từ chối ngay (dù mật khẩu đúng hay sai)
     if (st.lockedUntil && st.lockedUntil > new Date()) {
@@ -190,7 +218,7 @@ router.post(
     // đã sai từ 3 lần: PHẢI qua CAPTCHA trước khi server kiểm tra mật khẩu (bot không dò được mật khẩu nếu không có token)
     if (st.fails >= CAPTCHA_AFTER) {
       const token = req.body["g-recaptcha-response"] || req.body.recaptcha;
-      if (!(await verifyRecaptcha(token, req.ip)))
+      if (!(await verifyRecaptcha(token, req.ip, req.hostname)))
         return back(400, "Vui lòng xác nhận bạn không phải người máy.", true);
     }
 
@@ -204,15 +232,19 @@ router.post(
       const fails = st.fails + 1;
       const khoa = fails >= LOCK_AFTER;
       const lockedUntil = khoa ? new Date(Date.now() + LOCK_MS) : null;
+      // lần sai đầu tiên của cửa sổ mới (st.fails = 0 nghĩa là chưa có cửa sổ hoặc cửa sổ cũ đã hết) -> ghi mốc bắt đầu = bây giờ
+      const windowStart = st.fails === 0 ? new Date() : raw.windowStart;
       if (user)
         await user.update({
           failedLogins: khoa ? 0 : fails,
+          windowStart: khoa ? null : windowStart,
           lockedUntil,
         });
       else {
         if (ghostFails.size > 20000) ghostFails.clear(); // chặn phình RAM khi bị spam email lạ
         ghostFails.set(email, {
           fails: khoa ? 0 : fails,
+          windowStart: khoa ? null : windowStart,
           lockedUntil,
           at: Date.now(),
         });
@@ -241,6 +273,7 @@ router.post(
     if (oldToken) await Session.destroy({ where: { id: sha256(oldToken) } });
     await user.update({
       failedLogins: 0,
+      windowStart: null,
       lockedUntil: null,
       lastLoginAt: new Date(),
     });
@@ -272,7 +305,7 @@ router.post(
     // CAPTCHA phải qua TRƯỚC mọi thao tác khác (tra DB, tạo OTP, gửi email):
     // bot không có token hợp lệ thì không thể bắt server gửi email.
     // Mỗi token reCAPTCHA chỉ dùng được 1 lần -> mỗi lần gửi / gửi lại mã đều phải xác nhận lại.
-    if (!(await verifyRecaptcha(req.body.recaptcha, req.ip))) {
+    if (!(await verifyRecaptcha(req.body.recaptcha, req.ip, req.hostname))) {
       return fail(
         res,
         400,
@@ -441,6 +474,7 @@ router.post(
         passwordHash,
         emailVerifiedAt: new Date(),
         failedLogins: 0,
+        windowStart: null,
         lockedUntil: null,
       });
     else
@@ -458,7 +492,38 @@ router.post(
 
 // ---------------------------------------------------------------- QUÊN MẬT KHẨU (link token qua email)
 // B1: POST /forgot-password {email} -> email chứa link /reset-password?token=<256 bit>; DB chỉ lưu SHA-256 của token.
-// B2: GET  /reset-password?token=   -> form mật khẩu mới.   B3: POST /reset-password -> đổi mật khẩu rồi 303 /login?reset=1.
+// B2: GET  /reset-password?token=   -> form mật khẩu mới (chỉ đọc DB).   B3: POST /reset-password -> đổi mật khẩu rồi 303 /login?reset=1.
+
+// Phần tốn thời gian (tra DB, tạo token, GỬI MAIL) chạy NỀN sau khi đã trả lời client. Nhờ vậy email có tài khoản và email không có
+// tài khoản nhận phản hồi cùng nội dung VÀ cùng thời gian (người ngoài không dò được qua độ trễ). Lỗi chỉ ghi log, không ảnh hưởng phản hồi.
+async function guiLinkDatLai(email, base) {
+  const user = await User.findOne({ where: { email } });
+  if (!user || !user.emailVerifiedAt) return;
+  const old = await PasswordReset.findOne({
+    where: { userId: user.id, usedAt: null },
+    order: [["sentAt", "DESC"]],
+  });
+  if (old && Date.now() - old.sentAt.getTime() < RESEND_COOLDOWN_MS) return;
+  const token = randomToken();
+  // mỗi người chỉ có 1 link CHƯA DÙNG còn hiệu lực (link cũ chết); dòng ĐÃ DÙNG (usedAt) được giữ lại làm bằng chứng
+  await PasswordReset.destroy({ where: { userId: user.id, usedAt: null } });
+  await PasswordReset.create({
+    userId: user.id,
+    tokenHash: sha256(token), // chỉ lưu hash, không lưu token
+    expiresAt: new Date(Date.now() + RESET_LINK_MINUTES * 60 * 1000),
+    sentAt: new Date(),
+  });
+  await sendMail({
+    to: user.email,
+    ...resetLinkEmailContent({
+      name: user.name,
+      link: `${base}/reset-password?token=${token}`,
+      minutes: RESET_LINK_MINUTES,
+      baseUrl: base,
+    }),
+  });
+}
+
 router.post(
   "/forgot-password",
   guestOnly,
@@ -468,56 +533,31 @@ router.post(
     const email = normEmail(req.body.email);
     const eEmail = V.validateEmail(email);
     if (eEmail) return fail(res, 400, eEmail, "email");
-    const user = await User.findOne({ where: { email } });
-    if (user && user.emailVerifiedAt) {
-      const old = await PasswordReset.findOne({ where: { userId: user.id } });
-      const cooling =
-        old && Date.now() - old.sentAt.getTime() < RESEND_COOLDOWN_MS;
-      if (!cooling) {
-        const token = randomToken();
-        await PasswordReset.destroy({ where: { userId: user.id } }); // mỗi người chỉ có 1 link còn hiệu lực (link cũ chết)
-        await PasswordReset.create({
-          userId: user.id,
-          tokenHash: sha256(token), // chỉ lưu hash, không lưu token
-          expiresAt: new Date(Date.now() + RESET_LINK_MINUTES * 60 * 1000),
-          sentAt: new Date(),
-        });
-        try {
-          await sendMail({
-            to: user.email,
-            ...resetLinkEmailContent({
-              name: user.name,
-              link: `${baseUrl(req)}/reset-password?token=${token}`,
-              minutes: RESET_LINK_MINUTES,
-              baseUrl: baseUrl(req),
-            }),
-          });
-        } catch (err) {
-          console.error("Gửi link đặt lại mật khẩu thất bại:", err.message);
-        }
-      }
-    }
+    // không await: trả lời ngay, việc còn lại làm nền (fire-and-forget)
+    guiLinkDatLai(email, baseUrl(req)).catch((err) =>
+      console.error("Gửi link đặt lại mật khẩu thất bại:", err.message),
+    );
     // luôn báo thành công, dù email có tồn tại hay không (không lộ email nào có tài khoản)
     ok(res, { cooldown: RESEND_COOLDOWN_MS / 1000 });
   }),
 );
 
-// token còn hiệu lực -> dòng PasswordReset; sai định dạng / không có / hết hạn -> null
+// token còn hiệu lực -> dòng PasswordReset; sai định dạng / không có / hết hạn / ĐÃ DÙNG -> null.
+// CHỈ ĐỌC (GET /reset-password gọi hàm này nên không được ghi/xóa gì); dòng hết hạn do utils/cleanup.js dọn.
 async function findReset(token) {
   if (!TOKEN_RE.test(token)) return null;
-  const row = await PasswordReset.findOne({
-    where: { tokenHash: sha256(token) },
+  return PasswordReset.findOne({
+    where: {
+      tokenHash: sha256(token),
+      usedAt: null,
+      expiresAt: { [Op.gt]: new Date() },
+    },
   });
-  if (!row) return null;
-  if (row.expiresAt < new Date()) {
-    await row.destroy();
-    return null;
-  }
-  return row;
 }
-// trang chứa token trên URL: không cache, không gửi Referer ra site khác (same-origin: KHÔNG dùng no-referrer vì sẽ làm Origin của form POST thành "null" và bị sameOriginOnly chặn)
+// trang chứa token trên URL: không cache, KHÔNG gửi Referer đi đâu cả (no-referrer). Form POST ở trang này gửi Origin "null",
+// vẫn được nhận vì đã có CSRF token (middleware/csrf.js).
 const khongLuuVet = (req, res, next) => {
-  res.set({ "Cache-Control": "no-store", "Referrer-Policy": "same-origin" });
+  res.set({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
   next();
 };
 const resetView = (res, status, extra = {}) =>
@@ -554,10 +594,7 @@ router.post(
     const row = await findReset(token);
     if (!row) return resetView(res, 400, { resetValid: false });
     const user = await User.findByPk(row.userId);
-    if (!user) {
-      await row.destroy();
-      return resetView(res, 400, { resetValid: false });
-    }
+    if (!user) return resetView(res, 400, { resetValid: false });
 
     const errors = {};
     const ePass = V.validatePassword(password, {
@@ -570,14 +607,42 @@ router.post(
     if (errors.matKhau || errors.matKhau2)
       return resetView(res, 400, { resetToken: token, resetErrors: errors });
 
-    // token đúng: đổi mật khẩu, hủy token (dùng 1 lần), mở khóa, đăng xuất mọi thiết bị
-    await user.update({
-      passwordHash: await bcrypt.hash(password, BCRYPT_COST),
-      failedLogins: 0,
-      lockedUntil: null,
+    const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
+    // token đúng: trong 1 giao dịch -> "chiếm" token (UPDATE có điều kiện usedAt IS NULL nên 2 request cùng lúc chỉ 1 request thắng),
+    // đổi mật khẩu, mở khóa, đăng xuất mọi thiết bị. Dòng token được GIỮ LẠI với usedAt để còn bằng chứng.
+    const dungDuoc = await sequelize.transaction(async (t) => {
+      const [soDong] = await PasswordReset.update(
+        { usedAt: new Date() },
+        {
+          where: {
+            id: row.id,
+            usedAt: null,
+            expiresAt: { [Op.gt]: new Date() },
+          },
+          transaction: t,
+        },
+      );
+      if (soDong !== 1) return false;
+      await user.update(
+        { passwordHash, failedLogins: 0, windowStart: null, lockedUntil: null },
+        { transaction: t },
+      );
+      await Session.destroy({ where: { userId: user.id }, transaction: t });
+      return true;
     });
-    await PasswordReset.destroy({ where: { userId: user.id } });
-    await Session.destroy({ where: { userId: user.id } });
+    if (!dungDuoc) return resetView(res, 400, { resetValid: false });
+
+    // thông báo cho chủ tài khoản (không chờ, lỗi gửi mail không làm hỏng việc đổi mật khẩu đã xong)
+    sendMail({
+      to: user.email,
+      ...passwordChangedEmailContent({
+        name: user.name,
+        baseUrl: baseUrl(req),
+        when: new Date(),
+      }),
+    }).catch((err) =>
+      console.error("Gửi email 'mật khẩu đã thay đổi' thất bại:", err.message),
+    );
     res.redirect(303, "/login?reset=1");
   }),
 );

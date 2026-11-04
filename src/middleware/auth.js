@@ -38,7 +38,7 @@ async function attachUser(req, res, next) {
       !session.user ||
       !session.user.emailVerifiedAt
     ) {
-      await session.destroy();
+      // KHÔNG xóa dòng phiên ở đây: request GET không được đổi dữ liệu. Phiên hết hạn do utils/cleanup.js dọn mỗi giờ.
       res.clearCookie(SESSION_COOKIE, cookieOptions());
       res.clearCookie("role");
       return next();
@@ -46,7 +46,7 @@ async function attachUser(req, res, next) {
     req.user = session.user;
     req.sessionId = session.id;
     const role = req.cookies.role;
-      // cookie `role` bị sửa tay thành admin mà tài khoản là khách thì vẫn không có quyền
+    // cookie `role` bị sửa tay thành admin mà tài khoản là khách thì vẫn không có quyền
     req.role =
       ROLES.includes(role) && canUseRole(session.user.role, role) ? role : null;
     // avatar: URL thumbnail (240px) của ảnh đại diện, rỗng nếu chưa có
@@ -76,35 +76,11 @@ function requireAuth(req, res, next) {
 function requireAdmin(req, res, next) {
   if (!req.user) return requireAuth(req, res, next);
   if (!req.role) return res.redirect(303, "/"); // đã đăng nhập nhưng chưa chọn vai: ra phố chọn
-    if (req.role !== "admin" || req.user.role !== "chef") {
+  if (req.role !== "admin" || req.user.role !== "chef") {
     return res.status(403).render("error", {
       status: 403,
       message: "Trang này chỉ dành cho role admin.",
     });
-  }
-  next();
-}
-
-// Chặn CSRF: request đổi dữ liệu (POST/PATCH/DELETE) phải đến từ chính website này.
-// Cùng với SameSite=Lax của cookie là đủ cho form HTML thuần và fetch cùng nguồn.
-function sameOriginOnly(req, res, next) {
-  if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
-  const src = req.get("origin") || req.get("referer");
-  if (src) {
-    let host = null;
-    try {
-      host = new URL(src).host;
-    } catch (e) {}
-    if (host !== req.get("host")) {
-      if (req.is("json"))
-        return res
-          .status(403)
-          .json({ ok: false, error: "Yêu cầu bị từ chối (không cùng nguồn)." });
-      return res.status(403).render("error", {
-        status: 403,
-        message: "Yêu cầu bị từ chối (không cùng nguồn).",
-      });
-    }
   }
   next();
 }
@@ -116,6 +92,5 @@ module.exports = {
   attachUser,
   requireAuth,
   requireAdmin,
-  sameOriginOnly,
-  canUseRole
+  canUseRole,
 };

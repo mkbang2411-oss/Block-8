@@ -24,7 +24,7 @@
       <img src="/img/thuyen.webp" width="1400" height="369" alt="" draggable="false" decoding="async">
     </button>
   </div>
-  <form method="post" action="/logout" id="form-dang-xuat" hidden></form>
+  <form method="post" action="/logout" id="form-dang-xuat" hidden><input type="hidden" name="_csrf" value="<%= locals.csrfToken || '' %>"></form>
   <% } else { %>
   <div class="thuyen" aria-hidden="true">
     <img src="/img/thuyen.webp" width="1400" height="369" alt="" draggable="false" decoding="async">
@@ -70,6 +70,7 @@
 <%# Form thật: POST /chon-vai (role=user|admin, cần đã đăng nhập). JS chỉ thêm hiệu ứng chuyển cảnh trước khi gửi form %>
 <div class="lop" id="hop-vai" hidden>
   <form class="hop" id="form-vai" method="post" action="/chon-vai">
+    <input type="hidden" name="_csrf" value="<%= locals.csrfToken || '' %>">
     <h2>Bạn vào quán với vai gì?</h2>
     <div class="vai-luoi">
       <label class="vai"><input type="radio" name="role" value="admin" required>

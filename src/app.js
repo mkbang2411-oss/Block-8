@@ -3,7 +3,8 @@ const express = require("express");
 const compression = require("compression");
 const cookieParser = require("cookie-parser");
 const methodOverride = require("method-override");
-const { attachUser, requireAdmin, sameOriginOnly } = require("./middleware/auth");
+const { attachUser, requireAdmin } = require("./middleware/auth");
+const { csrf } = require("./middleware/csrf");
 const { formatPrice, dishThumb } = require("./utils/format");
 
 const app = express();
@@ -36,13 +37,14 @@ app.use(express.json({ limit: "10kb" })); // trang đăng nhập/đăng ký gọ
 app.use(cookieParser());
 // <form method="POST" action="...?_method=PATCH|DELETE"> -> req.method = PATCH|DELETE
 app.use(methodOverride("_method"));
-// chặn CSRF (POST/PATCH/DELETE phải cùng nguồn) rồi đọc cookie phiên -> req.user
-app.use(sameOriginOnly);
+// chặn CSRF (POST/PATCH/DELETE phải kèm CSRF token khớp cookie, và cùng nguồn nếu có Origin/Referer) rồi đọc cookie phiên -> req.user
+app.use(csrf);
 app.use(attachUser);
 // origin của Supabase Storage (không phải bí mật): để <link rel="preconnect"> mở sẵn kết nối tới nơi chứa ảnh
 let imgOrigin = "";
 try {
-  if (process.env.SUPABASE_URL) imgOrigin = new URL(process.env.SUPABASE_URL).origin;
+  if (process.env.SUPABASE_URL)
+    imgOrigin = new URL(process.env.SUPABASE_URL).origin;
 } catch (e) {}
 app.use((req, res, next) => {
   res.locals.imgOrigin = imgOrigin;
@@ -70,12 +72,20 @@ app.use((err, req, res, next) => {
   // JSON gửi lên sai định dạng / quá lớn -> 400 / 413 thay vì 500
   if (err.type === "entity.parse.failed" || err.type === "entity.too.large") {
     const status = err.status || 400;
-    if (req.is("json")) return res.status(status).json({ ok: false, error: "Dữ liệu gửi lên không hợp lệ." });
-    return res.status(status).render("error", { status, message: "Dữ liệu gửi lên không hợp lệ." });
+    if (req.is("json"))
+      return res
+        .status(status)
+        .json({ ok: false, error: "Dữ liệu gửi lên không hợp lệ." });
+    return res
+      .status(status)
+      .render("error", { status, message: "Dữ liệu gửi lên không hợp lệ." });
   }
   console.error(err);
   if (req.is("json"))
-    return res.status(500).json({ ok: false, error: "Có lỗi xảy ra phía máy chủ, vui lòng thử lại." });
+    return res.status(500).json({
+      ok: false,
+      error: "Có lỗi xảy ra phía máy chủ, vui lòng thử lại.",
+    });
   res
     .status(500)
     .render("error", { status: 500, message: "Có lỗi xảy ra phía máy chủ." });

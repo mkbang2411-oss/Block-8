@@ -60,7 +60,7 @@ const esc = (s) =>
   );
 
 // Khung email chung. `khoi` là phần giữa (HTML) + `khoiText` là bản chữ thường của nó cho trình đọc mail không hiện HTML.
-// Email theo mẫu Hội An (otp-email.html), dùng chung cho: OTP đăng ký, link đặt lại mật khẩu, thông báo "email đã có tài khoản". Viết lại cho trình đọc mail (Gmail, Outlook...): bố cục bằng <table>, CSS inline,
+// Email theo mẫu Hội An (otp-email.html), dùng chung cho: OTP đăng ký, link đặt lại mật khẩu, thông báo "email đã có tài khoản", thông báo "mật khẩu đã thay đổi". Viết lại cho trình đọc mail (Gmail, Outlook...): bố cục bằng <table>, CSS inline,
 // font có dự phòng, KHÔNG dùng JS / biến CSS / SVG.
 // Ảnh nền hoian-bg.jpg (dựng từ hoian-bg.svg) được tải từ APP_URL, và PHẢI là địa chỉ công khai (https://...):
 //   - Gmail/Outlook.com tải ảnh qua máy chủ của họ nên KHÔNG thấy được http://localhost.
@@ -82,6 +82,8 @@ function renderMail({
   textBody,
   baseUrl = "",
   minutes = 0,
+  // câu cuối thư: mặc định dành cho thư người dùng tự yêu cầu (OTP, link); thư thông báo (vd. đã đổi mật khẩu) truyền câu khác
+  footer = "Nếu bạn không yêu cầu, hãy bỏ qua email này.",
 }) {
   const who = name ? esc(name) : "bạn";
   const bg = baseUrl ? `${baseUrl}/img/email/hoian-bg.jpg` : "";
@@ -114,14 +116,14 @@ ${bg ? `<!--[if gte mso 9]><v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill=
     ${khoi}
     ${hanHtml ? `<p style="margin:0;font-size:14px;line-height:1.55;color:#6f5e58;">${hanHtml}</p>` : ""}
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="60%" style="margin:18px auto 14px;"><tr><td height="1" style="height:1px;line-height:1px;font-size:0;background-color:#ecd9d3;">&nbsp;</td></tr></table>
-    <p style="margin:0;font-size:13px;line-height:1.5;color:#8a7a74;">Nếu bạn không yêu cầu, hãy bỏ qua email này.</p>
+    <p style="margin:0;font-size:13px;line-height:1.5;color:#8a7a74;">${footer}</p>
   </td></tr></table>
 ${bg ? "<!--[if gte mso 9]></v:textbox></v:rect><![endif]-->" : ""}
 </td></tr></table>
 </body></html>`;
   return {
     subject,
-    text: `Chào ${name || "bạn"},\n\n${textBody}\n\nNếu bạn không yêu cầu, hãy bỏ qua email này.`,
+    text: `Chào ${name || "bạn"},\n\n${textBody}\n\n${footer.replace(/<[^>]+>/g, "")}`,
     html,
   };
 }
@@ -194,9 +196,40 @@ function existsEmailContent({ name, baseUrl = "" }) {
   });
 }
 
+// 4) THÔNG BÁO sau khi mật khẩu đã được đổi (đặt lại qua link quên mật khẩu): để chủ tài khoản biết ngay nếu người khác làm việc này.
+//    Không chứa mật khẩu / token; chỉ nêu thời điểm và hướng xử lý khi không phải do chính chủ.
+function passwordChangedEmailContent({
+  name,
+  baseUrl = "",
+  when = new Date(),
+}) {
+  const luc = new Date(when).toLocaleString("vi-VN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "Asia/Ho_Chi_Minh",
+  });
+  const login = `${baseUrl}/login`;
+  const quen = `${baseUrl}/login?quen=1`;
+  return renderMail({
+    subject: "Mật khẩu đã được thay đổi - Cái Quán Ăn",
+    name,
+    baseUrl,
+    heading: "Mật khẩu đã thay đổi",
+    lead: `mật khẩu tài khoản của bạn vừa được đặt lại thành công lúc <b>${luc}</b> (giờ Việt Nam). Mọi thiết bị đang đăng nhập đã bị đăng xuất.`,
+    khoi: nutLink(login, "Đăng nhập"),
+    hanHtml: `Nếu <b>không phải bạn</b> làm việc này, hãy <a href="${esc(quen)}" style="color:#d4507f;">đặt lại mật khẩu ngay</a> để lấy lại quyền kiểm soát tài khoản.`,
+    textBody: `Mật khẩu tài khoản của bạn vừa được đặt lại thành công lúc ${luc} (giờ Việt Nam). Mọi thiết bị đang đăng nhập đã bị đăng xuất.\nNếu KHÔNG phải bạn làm việc này, hãy đặt lại mật khẩu ngay tại ${quen} để lấy lại quyền kiểm soát tài khoản.`,
+    footer: "Email này chỉ để thông báo, bạn không cần trả lời.",
+  });
+}
+
 module.exports = {
   sendMail,
   otpEmailContent,
   resetLinkEmailContent,
   existsEmailContent,
+  passwordChangedEmailContent,
 };

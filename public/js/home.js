@@ -134,7 +134,7 @@
   }
   form.addEventListener("change", () => (vao.disabled = false));
   $("#de-sau").onclick = () => (hopVai.hidden = true);
-    // Vai của TÀI KHOẢN (chọn lúc đăng ký): "customer" chỉ được vào với vai khách, "chef" vào được cả 2 vai.
+  // Vai của TÀI KHOẢN (chọn lúc đăng ký): "customer" chỉ được vào với vai khách, "chef" vào được cả 2 vai.
   const vaiTaiKhoan = $(".canh").dataset.tk;
   form.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -396,6 +396,10 @@
         fd.append("image", blob, "avatar.webp");
         const r = await fetch("/avatar", {
           method: "POST",
+          headers: {
+            "X-CSRF-Token":
+              document.querySelector('meta[name="csrf-token"]')?.content || "",
+          },
           body: fd,
           credentials: "same-origin",
         });

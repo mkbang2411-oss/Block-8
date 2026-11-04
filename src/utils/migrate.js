@@ -10,10 +10,22 @@ async function addMissingColumns(sequelize, models) {
       if (existing[col]) continue;
       // cột mới trên bảng có dữ liệu: không ép NOT NULL nếu không có default
       const def = { ...attr };
-      if (def.allowNull === false && def.defaultValue === undefined) def.allowNull = true;
+      if (def.allowNull === false && def.defaultValue === undefined)
+        def.allowNull = true;
       await qi.addColumn(table, col, def);
       console.log(`Đã thêm cột ${table}.${col}`);
     }
   }
 }
-module.exports = { addMissingColumns };
+
+// Đổi tên cột cũ -> mới trên bảng ĐÃ CÓ dữ liệu (giữ nguyên dữ liệu). Chỉ chạy khi cột cũ còn và cột mới chưa có -> chạy lại nhiều lần không sao.
+async function renameColumnIfNeeded(sequelize, model, from, to) {
+  const qi = sequelize.getQueryInterface();
+  const table = model.getTableName();
+  const existing = await qi.describeTable(table);
+  if (existing[from] && !existing[to]) {
+    await qi.renameColumn(table, from, to);
+    console.log(`Đã đổi tên cột ${table}.${from} -> ${to}`);
+  }
+}
+module.exports = { addMissingColumns, renameColumnIfNeeded };

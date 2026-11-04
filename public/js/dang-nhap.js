@@ -12,6 +12,9 @@
     paneDm = $("#p-dm"); // chỉ có khi mở từ link đặt lại mật khẩu
 
   // ================= GỌI SERVER =================
+  // CSRF token (server nhúng vào <meta name="csrf-token">): mọi request POST phải gửi lại ở header X-CSRF-Token
+  const csrf = () =>
+    document.querySelector('meta[name="csrf-token"]')?.content || "";
   const goi = async (url, body) => {
     let r;
     try {
@@ -20,6 +23,7 @@
         headers: {
           "Content-Type": "application/json",
           Accept: "application/json",
+          "X-CSRF-Token": csrf(),
         },
         credentials: "same-origin",
         body: JSON.stringify(body),
@@ -285,6 +289,7 @@
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
           Accept: "application/json", // lỗi -> JSON; đúng -> vẫn 303
+          "X-CSRF-Token": csrf(),
         },
         body: new URLSearchParams(new FormData(fDn)),
       });

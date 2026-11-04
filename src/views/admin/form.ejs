@@ -11,7 +11,7 @@
   <%# novalidate: để server kiểm tra và trả 400 %>
   <form method="post" enctype="multipart/form-data" novalidate id="form" class="giay-form<%= haiTo ? ' hai-to' : '' %>"
         data-res="<%= r.key %>"<% if (isEdit) { %> data-id="<%= record.id %>"<% } %>
-        action="<%= isEdit ? `/admin/${r.key}/${record.id}?_method=PATCH` : `/admin/${r.key}` %>">
+        action="<%= isEdit ? `/admin/${r.key}/${record.id}?_method=PATCH&_csrf=${csrfToken}` : `/admin/${r.key}?_csrf=${csrfToken}` %>">
     <div class="bao-loi" id="loi"<%= Object.keys(errors).length ? '' : ' hidden' %>>Dữ liệu chưa hợp lệ, vui lòng kiểm tra lại (giá trị đã nhập được giữ nguyên).</div>
     <div class="giay-luoi">
       <section class="to-giay">
